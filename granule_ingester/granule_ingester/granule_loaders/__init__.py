@@ -1,1 +1,2 @@
 from granule_ingester.granule_loaders.GranuleLoader import GranuleLoader
+from granule_ingester.granule_loaders.InsituLoader import InsituLoader
