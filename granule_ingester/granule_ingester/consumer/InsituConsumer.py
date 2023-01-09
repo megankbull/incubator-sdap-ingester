@@ -217,6 +217,8 @@ class InsituConsumer(HealthCheck):
                 await solr.save_batch_insitu(observation_docs)
             elif message_type == 'tile':
                 pass
+
+            message.ack()
         except KeyError:
             logger.error('Invalid message')
             raise
