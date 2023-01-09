@@ -39,7 +39,7 @@ MAX_BATCH_SIZE = 128
 
 
 class SolrStore(MetadataStore):
-    def __init__(self, solr_url=None, zk_url=None):
+    def __init__(self, solr_url=None, zk_url=None, collection='nexustiles'):
         super().__init__()
 
         self.TABLE_NAME = "sea_surface_temp"
@@ -48,7 +48,7 @@ class SolrStore(MetadataStore):
         self._solr_url = solr_url
         self._zk_url = zk_url
         self.geo_precision: int = 3
-        self._collection: str = "nexustiles"
+        self._collection: str = collection
         self.log: logging.Logger = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG)
         self._solr = None
@@ -130,6 +130,23 @@ class SolrStore(MetadataStore):
             writing += len(batch)
 
             logger.info(f"Writing batch of {len(batch)} documents | ({writing}/{n_tiles}) [{writing/n_tiles*100:7.3f}%]")
+            await self._save_document(batch)
+        logger.info(f'Wrote {len(solr_docs)} metadata items to Solr in {str(datetime.now() - thetime)} seconds')
+
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=1, max=12))
+    async def save_batch_insitu(self, solr_docs: List[dict]) -> None:
+        logger.info(f'Writing {len(solr_docs)} metadata items to Solr')
+        thetime = datetime.now()
+
+        batches = [solr_docs[i:i+MAX_BATCH_SIZE] for i in range(0, len(solr_docs), MAX_BATCH_SIZE)]
+
+        n_docs = len(solr_docs)
+        writing = 0
+
+        for batch in batches:
+            writing += len(batch)
+
+            logger.info(f"Writing batch of {len(batch)} documents | ({writing}/{n_docs}) [{writing/n_docs*100:7.3f}%]")
             await self._save_document(batch)
         logger.info(f'Wrote {len(solr_docs)} metadata items to Solr in {str(datetime.now() - thetime)} seconds')
 

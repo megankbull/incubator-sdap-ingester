@@ -1,1 +1,2 @@
 from granule_ingester.consumer.MessageConsumer import MessageConsumer
+from granule_ingester.consumer.InsituConsumer import InsituConsumer

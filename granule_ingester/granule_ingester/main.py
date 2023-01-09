@@ -20,7 +20,7 @@ import sys
 from functools import partial
 from typing import List
 
-from granule_ingester.consumer import MessageConsumer
+from granule_ingester.consumer import MessageConsumer, InsituConsumer
 from granule_ingester.exceptions import FailedHealthCheckError, LostConnectionError
 from granule_ingester.healthcheck import HealthCheck
 from granule_ingester.writers import CassandraStore, SolrStore
@@ -151,6 +151,11 @@ async def main(loop):
                         metavar='insitu rmq queue',
                         dest='insitu_rmq',
                         help='RMQ queue for insitu clusters')
+    parser.add_argument('--insitu-stage-queue',
+                        default='insitu-stage',
+                        metavar='insitu rmq queue',
+                        dest='insitu_rmq_stage',
+                        help='RMQ queue for insitu input JSON files')
     parser.add_argument('--insitu-collection',
                         default='insitutiles',
                         dest='insitu_solr',
@@ -262,7 +267,34 @@ async def main(loop):
             finally:
                 sys.exit(1)
     elif insitu_mode == 'preprocess':
-        pass
+        consumer = InsituConsumer(message_type='preprocess',
+                                  rabbitmq_host=args.rabbitmq_host,
+                                  rabbitmq_username=args.rabbitmq_username,
+                                  rabbitmq_password=args.rabbitmq_password,
+                                  rabbitmq_queue=args.insitu_rmq_stage,
+                                  solr_url=args.solr_host_and_port,
+                                  solr_collection=args.insitu_stage,
+                                  metadata_store_factory=partial(
+                                      solr_factory,
+                                      solr_host_and_port,
+                                      zk_host_and_port,
+                                      args.insitu_stage
+                                  ))
+        try:
+            await run_health_checks([
+                consumer,
+                solr_factory(solr_host_and_port, zk_host_and_port, args.insitu_stage)
+            ])
+            async with consumer:
+                await consumer.start_consuming()
+        except FailedHealthCheckError as e:
+            logger.error(f"Quitting because not all dependencies passed the health checks: {e}")
+        except LostConnectionError as e:
+            logger.error(f"{e} Any messages that were being processed have been re-queued. Quitting.")
+        except Exception as e:
+            logger.exception(f"Shutting down because of an unrecoverable error:\n{e}")
+        finally:
+            sys.exit(1)
     elif insitu_mode == 'cluster':
         pass
     elif insitu_mode == 'tile':
