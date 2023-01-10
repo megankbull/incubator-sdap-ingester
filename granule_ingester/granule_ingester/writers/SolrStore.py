@@ -98,6 +98,9 @@ class SolrStore(MetadataStore):
     def connect(self, loop: AbstractEventLoop = None):
         self._solr = self._get_connection()
 
+    def get_solr(self):
+        return self._solr
+
     async def health_check(self):
         try:
             connection = self._get_connection()
