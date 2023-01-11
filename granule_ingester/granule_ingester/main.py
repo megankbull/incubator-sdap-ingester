@@ -153,20 +153,37 @@ async def main(loop):
                         default='cluster',
                         metavar='insitu rmq queue',
                         dest='insitu_rmq',
-                        help='RMQ queue for insitu clusters')
+                        help='RMQ queue for insitu clusters. (Default: cluster)')
     parser.add_argument('--insitu-stage-queue',
                         default='insitu-stage',
                         metavar='insitu rmq queue',
                         dest='insitu_rmq_stage',
-                        help='RMQ queue for insitu input JSON files')
+                        help='RMQ queue for insitu input JSON files. (Default: insitu-stage)')
     parser.add_argument('--insitu-collection',
                         default='insitutiles',
                         dest='insitu_solr',
-                        help='Solr collection for insitu tiles')
+                        help='Solr collection for insitu tiles. (Default: insitutiles)')
     parser.add_argument('--insitu-stage',
                         default='insitustage',
                         dest='insitu_stage',
-                        help='Solr collection to stage insitu observations')
+                        help='Solr collection to stage insitu observations. (Default: insitustage)')
+
+    # Insitu limiting
+    parser.add_argument('--stage-limit',
+                        default=500000,
+                        metavar='observations',
+                        dest='stage_limit',
+                        type=int,
+                        help='Soft limit for number of observations staged in Solr. Can be exceeded, but no further '
+                             'inputs will be processed until the number of staged observations falls below this value.'
+                             ' (Default: 500,000)')
+    parser.add_argument('--max-tile-size',
+                        default=0,
+                        metavar='observations',
+                        dest='tile_limit',
+                        type=int,
+                        help='Max number of observations per insitu tile. A value of 0 or less will result in no '
+                             'limit. (Default: 0)')
 
     args = parser.parse_args()
 
