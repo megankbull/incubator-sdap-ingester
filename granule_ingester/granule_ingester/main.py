@@ -23,9 +23,11 @@ from typing import List
 from granule_ingester.consumer import MessageConsumer, InsituConsumer
 from granule_ingester.exceptions import FailedHealthCheckError, LostConnectionError
 from granule_ingester.healthcheck import HealthCheck
+from granule_ingester.insitu_clustering.Modules import modules as clustering_methods
 from granule_ingester.writers import CassandraStore, SolrStore
 from granule_ingester.writers.ElasticsearchStore import ElasticsearchStore
 
+logging.getLogger('asyncio').setLevel(logging.INFO)
 
 # python main.py --rabbitmq-username user --rabbitmq-password bitnami --insitu preprocess -v
 # python main.py --rabbitmq-username user --rabbitmq-password bitnami --cassandra-username cassandra --cassandra-password cassandra --insitu tile -v
@@ -167,6 +169,17 @@ async def main(loop):
                         default='insitustage',
                         dest='insitu_stage',
                         help='Solr collection to stage insitu observations. (Default: insitustage)')
+    parser.add_argument('--cluster-method',
+                        default=None,
+                        choices=list(clustering_methods.keys()),
+                        metavar='method',
+                        dest='cluster_method',
+                        help='Method to use for determining insitu observation clusters. For a list of available '
+                             'methods, use --list-cluster-methods')
+    parser.add_argument('--list-cluster-methods',
+                        action='store_true',
+                        dest='list_methods',
+                        help='List available clustering methods and exit')
 
     # Insitu limiting
     parser.add_argument('--stage-limit',
@@ -186,6 +199,11 @@ async def main(loop):
                              'limit. (Default: 0)')
 
     args = parser.parse_args()
+
+    if args.list_methods:
+        for m in list(clustering_methods.keys()):
+            print(m)
+        return
 
     logging_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=logging_level)
