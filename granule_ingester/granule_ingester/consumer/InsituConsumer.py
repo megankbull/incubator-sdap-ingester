@@ -31,6 +31,7 @@ from granule_ingester.exceptions import RabbitMQLostConnectionError, \
     RabbitMQFailedHealthCheckError, LostConnectionError
 from granule_ingester.healthcheck import HealthCheck
 from granule_ingester.granule_loaders import InsituLoader
+from granule_ingester.processors.insitu import GenerateInsituTile
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +46,12 @@ class InsituConsumer(HealthCheck):
                  solr_url,
                  solr_collection,
                  metadata_store_factory,
-                 data_store_factory=None,):
+                 data_store_factory=None,
+                 stage_factory=None):
         self._rabbitmq_queue = rabbitmq_queue
         self._metadata_store_factory = metadata_store_factory
         self._data_store_factory = data_store_factory
+        self._stage_factory = stage_factory
 
         self._connection_string = "amqp://{username}:{password}@{host}/".format(username=rabbitmq_username,
                                                                                 password=rabbitmq_password,
@@ -58,8 +61,18 @@ class InsituConsumer(HealthCheck):
         self._type = message_type
 
         self._url_prefix = f"{solr_url.strip('/')}/solr"
-        self._collection = solr_collection
-        self._create_collection_if_needed(self._type)
+
+        if message_type == 'tile':
+            self._collection = solr_collection['store']
+            self._stage_collection = solr_collection['stage']
+
+            self._create_collection_if_needed(self._collection, 'tile')
+            self._create_collection_if_needed(self._stage_collection, 'preprocess')
+        else: # == preprocess
+            self._collection = solr_collection
+            self._stage_collection = None
+
+            self._create_collection_if_needed(self._collection, self._type)
 
     async def health_check(self) -> bool:
         try:
@@ -81,7 +94,7 @@ class InsituConsumer(HealthCheck):
         if self._connection:
             await self._connection.close()
 
-    def _create_collection_if_needed(self, message_type):
+    def _create_collection_if_needed(self, collection, message_type):
         try:
             session = requests.session()
 
@@ -95,12 +108,12 @@ class InsituConsumer(HealthCheck):
 
             existing_collections = response['cluster']['collections'].keys()
 
-            if self._collection not in existing_collections:
+            if collection not in existing_collections:
                 logger.warning('Collection is not present, creating it now')
 
                 # Create collection
                 payload = {'action': 'CREATE',
-                           'name': self._collection,
+                           'name': collection,
                            'numShards': node_number
                            }
                 result = session.get(collections_endpoint, params=payload)
@@ -108,7 +121,7 @@ class InsituConsumer(HealthCheck):
                 logger.info(f"solr collection created {response}")
 
                 # Update schema
-                schema_endpoint = f"{self._url_prefix}/{self._collection}/schema"
+                schema_endpoint = f"{self._url_prefix}/{collection}/schema"
 
                 field_type_payload = json.dumps({
                     "add-field-type": {
@@ -136,8 +149,19 @@ class InsituConsumer(HealthCheck):
                     self._add_field(schema_endpoint, "time_dt", "pdate", session)
                     self._add_field(schema_endpoint, "time", "plong", session)
                 elif message_type == 'tile':
-                    pass
-                    # TODO tile schema
+                    self._add_field(schema_endpoint, "geo", "geo", session)
+                    self._add_field(schema_endpoint, "dataset_s", "string", session)
+                    self._add_field(schema_endpoint, "files_ss", "strings", session)
+                    self._add_field(schema_endpoint, "solr_id_s", "string", session)
+                    self._add_field(schema_endpoint, "tile_min_lon", "pdouble", session)
+                    self._add_field(schema_endpoint, "tile_max_lon", "pdouble", session)
+                    self._add_field(schema_endpoint, "tile_min_lat", "pdouble", session)
+                    self._add_field(schema_endpoint, "tile_max_lat", "pdouble", session)
+                    self._add_field(schema_endpoint, "tile_min_depth", "pdouble", session)
+                    self._add_field(schema_endpoint, "tile_max_depth", "pdouble", session)
+                    self._add_field(schema_endpoint, "tile_min_time_dt", "pdate", session)
+                    self._add_field(schema_endpoint, "tile_max_time_dt", "pdate", session)
+                    self._add_field(schema_endpoint, "tile_count_i", "pint", session)
         except requests.exceptions.RequestException as e:
             logger.error(f"solr instance unreachable {self._url_prefix}")
             raise e
@@ -169,6 +193,7 @@ class InsituConsumer(HealthCheck):
     async def _received_message(message: aio_pika.IncomingMessage,
                                 data_store_factory,
                                 metadata_store_factory,
+                                stage_factory,
                                 message_type):
         message_str = message.body.decode('utf-8')
         logger.debug(message_str)
@@ -216,11 +241,21 @@ class InsituConsumer(HealthCheck):
 
                 await solr.save_batch_insitu(observation_docs)
             elif message_type == 'tile':
-                pass
+                uuids = input_config['ids']
+                solr_stage = stage_factory()
+
+                tile, metadata = await GenerateInsituTile.generate(uuids, input_config['dataset'], solr_stage.get_solr(), )
+
+                solr_store = metadata_store_factory()
+                data_store = data_store_factory()
+
+                await data_store.save_batch([tile])
+                await solr_store.save_batch_insitu([metadata])
 
             message.ack()
         except KeyError:
             logger.error('Invalid message')
+            await message.reject()
             raise
         except LostConnectionError:
             # Let main() handle this
@@ -239,6 +274,7 @@ class InsituConsumer(HealthCheck):
                 await self._received_message(message,
                                              self._data_store_factory,
                                              self._metadata_store_factory,
+                                             self._stage_factory,
                                              self._type)
             except aio_pika.exceptions.MessageProcessError:
                 # Do not try to close() the queue iterator! If we get here, that means the RabbitMQ

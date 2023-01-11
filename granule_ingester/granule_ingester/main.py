@@ -27,6 +27,9 @@ from granule_ingester.writers import CassandraStore, SolrStore
 from granule_ingester.writers.ElasticsearchStore import ElasticsearchStore
 
 
+# python main.py --rabbitmq-username user --rabbitmq-password bitnami --insitu preprocess -v
+# python main.py --rabbitmq-username user --rabbitmq-password bitnami --cassandra-username cassandra --cassandra-password cassandra --insitu tile -v
+
 def cassandra_factory(contact_points, port, keyspace, username, password):
     store = CassandraStore(contact_points=contact_points, port=port, keyspace=keyspace, username=username, password=password)
     store.connect()
@@ -281,11 +284,13 @@ async def main(loop):
                                       args.insitu_stage
                                   ))
         try:
+            logger.info('Running health checks...')
             await run_health_checks([
                 consumer,
                 solr_factory(solr_host_and_port, zk_host_and_port, args.insitu_stage)
             ])
             async with consumer:
+                logger.info("All external dependencies have passed the health checks. Now listening to message queue.")
                 await consumer.start_consuming()
         except FailedHealthCheckError as e:
             logger.error(f"Quitting because not all dependencies passed the health checks: {e}")
@@ -298,7 +303,52 @@ async def main(loop):
     elif insitu_mode == 'cluster':
         pass
     elif insitu_mode == 'tile':
-        pass
+        data_store_factory = partial(cassandra_factory,
+                                     cassandra_contact_points,
+                                     cassandra_port,
+                                     cassandra_keyspace,
+                                     cassandra_username,
+                                     cassandra_password)
+
+        consumer = InsituConsumer(message_type='tile',
+                                  rabbitmq_host=args.rabbitmq_host,
+                                  rabbitmq_username=args.rabbitmq_username,
+                                  rabbitmq_password=args.rabbitmq_password,
+                                  rabbitmq_queue=args.insitu_rmq,
+                                  solr_url=args.solr_host_and_port,
+                                  solr_collection={'stage': args.insitu_stage, 'store': args.insitu_solr},
+                                  metadata_store_factory=partial(
+                                      solr_factory,
+                                      solr_host_and_port,
+                                      zk_host_and_port,
+                                      args.insitu_solr
+                                  ),
+                                  data_store_factory=data_store_factory,
+                                  stage_factory=partial(
+                                      solr_factory,
+                                      solr_host_and_port,
+                                      zk_host_and_port,
+                                      args.insitu_stage
+                                  ))
+        try:
+            logger.info('Running health checks...')
+            await run_health_checks([
+                consumer,
+                solr_factory(solr_host_and_port, zk_host_and_port, args.insitu_stage),
+                solr_factory(solr_host_and_port, zk_host_and_port, args.insitu_solr),
+                data_store_factory()
+            ])
+            async with consumer:
+                logger.info("All external dependencies have passed the health checks. Now listening to message queue.")
+                await consumer.start_consuming()
+        except FailedHealthCheckError as e:
+            logger.error(f"Quitting because not all dependencies passed the health checks: {e}")
+        except LostConnectionError as e:
+            logger.error(f"{e} Any messages that were being processed have been re-queued. Quitting.")
+        except Exception as e:
+            logger.exception(f"Shutting down because of an unrecoverable error:\n{e}")
+        finally:
+            sys.exit(1)
 
 
 if __name__ == '__main__':
