@@ -13,5 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from granule_ingester.insitu_clustering.Cluster import ClusterSearch
-from granule_ingester.insitu_clustering.FixedGridSearch import FixedGridSearch
+from abc import ABC, abstractmethod
+
+from argparse import Namespace
+import pysolr
+
+
+class ClusterSearch(ABC):
+    def __init__(self, args: Namespace, solr: pysolr.Solr):
+        self._args: Namespace = args
+        self._solr: pysolr.Solr = solr

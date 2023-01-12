@@ -13,5 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from granule_ingester.insitu_clustering.Cluster import ClusterSearch
-from granule_ingester.insitu_clustering.FixedGridSearch import FixedGridSearch
+from granule_ingester.insitu_clustering import ClusterSearch
+
+
+class FixedGridSearch(ClusterSearch):
+    pass
