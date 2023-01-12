@@ -14,7 +14,11 @@
 # limitations under the License.
 
 from granule_ingester.insitu_clustering import ClusterSearch
+from argparse import Namespace
+import pysolr
 
 
 class FixedGridSearch(ClusterSearch):
-    pass
+    def __init__(self, args: Namespace, solr: pysolr.Solr):
+        ClusterSearch.__init__(args, solr)
+
