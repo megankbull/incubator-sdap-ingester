@@ -29,17 +29,20 @@ from granule_ingester.writers.ElasticsearchStore import ElasticsearchStore
 
 logging.getLogger('asyncio').setLevel(logging.INFO)
 
+
 # python main.py --rabbitmq-username user --rabbitmq-password bitnami --insitu preprocess -v
 # python main.py --rabbitmq-username user --rabbitmq-password bitnami --cassandra-username cassandra --cassandra-password cassandra --insitu tile -v
 
 def cassandra_factory(contact_points, port, keyspace, username, password):
-    store = CassandraStore(contact_points=contact_points, port=port, keyspace=keyspace, username=username, password=password)
+    store = CassandraStore(contact_points=contact_points, port=port, keyspace=keyspace, username=username,
+                           password=password)
     store.connect()
     return store
 
 
 def solr_factory(solr_host_and_port, zk_host_and_port, collection='nexustiles'):
-    store = SolrStore(zk_url=zk_host_and_port, collection=collection) if zk_host_and_port else SolrStore(solr_url=solr_host_and_port, collection=collection)
+    store = SolrStore(zk_url=zk_host_and_port, collection=collection) if zk_host_and_port else SolrStore(
+        solr_url=solr_host_and_port, collection=collection)
     store.connect()
     return store
 
@@ -60,143 +63,157 @@ async def run_health_checks(dependencies: List[HealthCheck]):
 async def main(loop):
     parser = argparse.ArgumentParser(description='Listen to RabbitMQ for granule ingestion instructions, and process '
                                                  'and ingest a granule for each message that comes through.')
+    main_args = parser.add_argument_group('Main args')
+
     # RABBITMQ
-    parser.add_argument('--rabbitmq-host',
-                        default='localhost',
-                        metavar='HOST',
-                        help='RabbitMQ hostname to connect to. (Default: "localhost")')
-    parser.add_argument('--rabbitmq-username',
-                        default='guest',
-                        metavar='USERNAME',
-                        help='RabbitMQ username. (Default: "guest")')
-    parser.add_argument('--rabbitmq-password',
-                        default='guest',
-                        metavar='PASSWORD',
-                        help='RabbitMQ password. (Default: "guest")')
-    parser.add_argument('--rabbitmq-queue',
-                        default="nexus",
-                        metavar="QUEUE",
-                        help='Name of the RabbitMQ queue to consume from. (Default: "nexus")')
-    
+    rmq_args = parser.add_argument_group('RabbitMQ args')
+    rmq_args.add_argument('--rabbitmq-host',
+                          default='localhost',
+                          metavar='HOST',
+                          help='RabbitMQ hostname to connect to. (Default: "localhost")')
+    rmq_args.add_argument('--rabbitmq-username',
+                          default='guest',
+                          metavar='USERNAME',
+                          help='RabbitMQ username. (Default: "guest")')
+    rmq_args.add_argument('--rabbitmq-password',
+                          default='guest',
+                          metavar='PASSWORD',
+                          help='RabbitMQ password. (Default: "guest")')
+    rmq_args.add_argument('--rabbitmq-queue',
+                          default="nexus",
+                          metavar="QUEUE",
+                          help='Name of the RabbitMQ queue to consume from. (Default: "nexus")')
+
     # CASSANDRA
-    parser.add_argument('--cassandra-contact-points',
-                        default=['localhost'],
-                        metavar="HOST",
-                        nargs='+',
-                        help='List of one or more Cassandra contact points, separated by spaces. (Default: "localhost")')
-    parser.add_argument('--cassandra-port',
-                        default=9042,
-                        metavar="PORT",
-                        help='Cassandra port. (Default: 9042)')
-    parser.add_argument('--cassandra-keyspace', 
-                        default='nexustiles',
-                        metavar='KEYSPACE',
-                        help='Cassandra Keyspace (Default: "nexustiles")')
-    parser.add_argument('--cassandra-username',
-                        metavar="USERNAME",
-                        default=None,
-                        help='Cassandra username. Optional.')
-    parser.add_argument('--cassandra-password',
-                        metavar="PASSWORD",
-                        default=None,
-                        help='Cassandra password. Optional.')
+    cassandra_args = parser.add_argument_group('Cassandra args')
+    cassandra_args.add_argument('--cassandra-contact-points',
+                                default=['localhost'],
+                                metavar="HOST",
+                                nargs='+',
+                                help='List of one or more Cassandra contact points, separated by spaces. (Default: "localhost")')
+    cassandra_args.add_argument('--cassandra-port',
+                                default=9042,
+                                metavar="PORT",
+                                help='Cassandra port. (Default: 9042)')
+    cassandra_args.add_argument('--cassandra-keyspace',
+                                default='nexustiles',
+                                metavar='KEYSPACE',
+                                help='Cassandra Keyspace (Default: "nexustiles")')
+    cassandra_args.add_argument('--cassandra-username',
+                                metavar="USERNAME",
+                                default=None,
+                                help='Cassandra username. Optional.')
+    cassandra_args.add_argument('--cassandra-password',
+                                metavar="PASSWORD",
+                                default=None,
+                                help='Cassandra password. Optional.')
 
     # METADATA STORE
-    parser.add_argument('--metadata-store',
-                        default='solr',
-                        metavar='STORE',
-                        help='Which metadata store to use')
+    main_args.add_argument('--metadata-store',
+                           default='solr',
+                           metavar='STORE',
+                           help='Which metadata store to use')
 
     # SOLR + ZK
-    parser.add_argument('--solr-host-and-port',
-                        default='http://localhost:8983',
-                        metavar='HOST:PORT',
-                        help='Solr host and port. (Default: http://localhost:8983)')
-    parser.add_argument('--zk-host-and-port',
-                        metavar="HOST:PORT")
-    
+    solr_args = parser.add_argument_group('Solr + ZK args')
+    solr_args.add_argument('--solr-host-and-port',
+                           default='http://localhost:8983',
+                           metavar='HOST:PORT',
+                           help='Solr host and port. (Default: http://localhost:8983)')
+    solr_args.add_argument('--zk-host-and-port',
+                           metavar="HOST:PORT")
+
     # ELASTIC
-    parser.add_argument('--elastic-url', 
-                        default='http://localhost:9200', 
-                        metavar='ELASTIC_URL', 
-                        help='ElasticSearch URL:PORT (Default: http://localhost:9200)')
-    parser.add_argument('--elastic-username', 
-                        metavar='ELASTIC_USER', 
-                        help='ElasticSearch username')
-    parser.add_argument('--elastic-password', 
-                        metavar='ELASTIC_PWD', 
-                        help='ElasticSearch password')
-    parser.add_argument('--elastic-index', 
-                        default='nexustiles', 
-                        metavar='ELASTIC_INDEX', 
-                        help='ElasticSearch index')
-    
+    elasticsearch_args = parser.add_argument_group('Elasticsearch args')
+    elasticsearch_args.add_argument('--elastic-url',
+                                    default='http://localhost:9200',
+                                    metavar='ELASTIC_URL',
+                                    help='ElasticSearch URL:PORT (Default: http://localhost:9200)')
+    elasticsearch_args.add_argument('--elastic-username',
+                                    metavar='ELASTIC_USER',
+                                    help='ElasticSearch username')
+    elasticsearch_args.add_argument('--elastic-password',
+                                    metavar='ELASTIC_PWD',
+                                    help='ElasticSearch password')
+    elasticsearch_args.add_argument('--elastic-index',
+                                    default='nexustiles',
+                                    metavar='ELASTIC_INDEX',
+                                    help='ElasticSearch index')
+
     # OTHERS
-    parser.add_argument('--max-threads',
-                        default=16,
-                        metavar='MAX_THREADS',
-                        help='Maximum number of threads to use when processing granules. (Default: 16)')
-    parser.add_argument('-v',
-                        '--verbose',
-                        action='store_true',
-                        help='Print verbose logs.')
+    main_args.add_argument('--max-threads',
+                           default=16,
+                           metavar='MAX_THREADS',
+                           help='Maximum number of threads to use when processing granules. (Default: 16)')
+    main_args.add_argument('-v',
+                           '--verbose',
+                           action='store_true',
+                           help='Print verbose logs.')
 
     # Insitu
-    parser.add_argument('--insitu',
-                        default=None,
-                        choices=['preprocess', 'cluster', 'tile'],
-                        metavar='INSITU_MODE',
-                        dest='insitu',
-                        help='Run granule ingester for insitu data in the specified mode: \n'
-                             'preprocess: Load insitu JSON from RMQ and stage in Solr.\n'
-                             'cluster: Detect clusters of insitu observations to make into tiles.\n'
-                             'tile: Create and write tile data.')
-    parser.add_argument('--insitu-queue',
-                        default='cluster',
-                        metavar='insitu rmq queue',
-                        dest='insitu_rmq',
-                        help='RMQ queue for insitu clusters. (Default: cluster)')
-    parser.add_argument('--insitu-stage-queue',
-                        default='insitu-stage',
-                        metavar='insitu rmq queue',
-                        dest='insitu_rmq_stage',
-                        help='RMQ queue for insitu input JSON files. (Default: insitu-stage)')
-    parser.add_argument('--insitu-collection',
-                        default='insitutiles',
-                        dest='insitu_solr',
-                        help='Solr collection for insitu tiles. (Default: insitutiles)')
-    parser.add_argument('--insitu-stage',
-                        default='insitustage',
-                        dest='insitu_stage',
-                        help='Solr collection to stage insitu observations. (Default: insitustage)')
-    parser.add_argument('--cluster-method',
-                        default=None,
-                        choices=list(clustering_methods.keys()),
-                        metavar='method',
-                        dest='cluster_method',
-                        help='Method to use for determining insitu observation clusters. For a list of available '
-                             'methods, use --list-cluster-methods')
-    parser.add_argument('--list-cluster-methods',
-                        action='store_true',
-                        dest='list_methods',
-                        help='List available clustering methods and exit')
+    insitu_args = parser.add_argument_group('Insitu args')
+    insitu_args.add_argument('--insitu',
+                             default=None,
+                             choices=['preprocess', 'cluster', 'tile'],
+                             metavar='INSITU_MODE',
+                             dest='insitu',
+                             help='Run granule ingester for insitu data in the specified mode: \n'
+                                  'preprocess: Load insitu JSON from RMQ and stage in Solr.\n'
+                                  'cluster: Detect clusters of insitu observations to make into tiles.\n'
+                                  'tile: Create and write tile data.')
+    insitu_args.add_argument('--insitu-queue',
+                             default='cluster',
+                             metavar='insitu rmq queue',
+                             dest='insitu_rmq',
+                             help='RMQ queue for insitu clusters. (Default: cluster)')
+    insitu_args.add_argument('--insitu-stage-queue',
+                             default='insitu-stage',
+                             metavar='insitu rmq queue',
+                             dest='insitu_rmq_stage',
+                             help='RMQ queue for insitu input JSON files. (Default: insitu-stage)')
+    insitu_args.add_argument('--insitu-collection',
+                             default='insitutiles',
+                             dest='insitu_solr',
+                             help='Solr collection for insitu tiles. (Default: insitutiles)')
+    insitu_args.add_argument('--insitu-stage',
+                             default='insitustage',
+                             dest='insitu_stage',
+                             help='Solr collection to stage insitu observations. (Default: insitustage)')
+    insitu_args.add_argument('--cluster-method',
+                             default=None,
+                             choices=list(clustering_methods.keys()),
+                             metavar='method',
+                             dest='cluster_method',
+                             help='Method to use for determining insitu observation clusters. For a list of available '
+                                  'methods, use --list-cluster-methods')
+    insitu_args.add_argument('--list-cluster-methods',
+                             action='store_true',
+                             dest='list_methods',
+                             help='List available clustering methods and exit')
 
     # Insitu limiting
-    parser.add_argument('--stage-limit',
-                        default=500000,
-                        metavar='observations',
-                        dest='stage_limit',
-                        type=int,
-                        help='Soft limit for number of observations staged in Solr. Can be exceeded, but no further '
-                             'inputs will be processed until the number of staged observations falls below this value.'
-                             ' (Default: 500,000)')
-    parser.add_argument('--max-tile-size',
-                        default=0,
-                        metavar='observations',
-                        dest='tile_limit',
-                        type=int,
-                        help='Max number of observations per insitu tile. A value of 0 or less will result in no '
-                             'limit. (Default: 0)')
+    insitu_args.add_argument('--stage-limit',
+                             default=500000,
+                             metavar='observations',
+                             dest='stage_limit',
+                             type=int,
+                             help='Soft limit for number of observations staged in Solr. Can be exceeded, but no further '
+                                  'inputs will be processed until the number of staged observations falls below this value.'
+                                  ' (Default: 500,000)')
+    insitu_args.add_argument('--max-tile-size',
+                             default=0,
+                             metavar='observations',
+                             dest='tile_limit',
+                             type=int,
+                             help='Max number of observations per insitu tile. A value of 0 or less will result in no '
+                                  'limit. (Default: 0)')
+
+    insitu_clustering_args = parser.add_argument_group('Insitu Clustering args')
+
+    for method in list(clustering_methods.keys()):
+        # method_grp = insitu_clustering_args.add_argument_group(f'{method} args')
+        for args in clustering_methods[method]['args']:
+            insitu_clustering_args.add_argument(*args['args'], **args['kwargs'])
 
     args = parser.parse_args()
 
@@ -221,7 +238,7 @@ async def main(loop):
     cassandra_port = args.cassandra_port
     cassandra_keyspace = args.cassandra_keyspace
 
-    metadata_store = args.metadata_store    
+    metadata_store = args.metadata_store
 
     solr_host_and_port = args.solr_host_and_port
     zk_host_and_port = args.zk_host_and_port
@@ -245,9 +262,11 @@ async def main(loop):
                                                                   cassandra_keyspace,
                                                                   cassandra_username,
                                                                   cassandra_password),
-                                       metadata_store_factory=partial(solr_factory, solr_host_and_port, zk_host_and_port))
+                                       metadata_store_factory=partial(solr_factory, solr_host_and_port,
+                                                                      zk_host_and_port))
             try:
-                solr_store = SolrStore(zk_url=zk_host_and_port) if zk_host_and_port else SolrStore(solr_url=solr_host_and_port)
+                solr_store = SolrStore(zk_url=zk_host_and_port) if zk_host_and_port else SolrStore(
+                    solr_url=solr_host_and_port)
                 await run_health_checks([CassandraStore(cassandra_contact_points,
                                                         cassandra_port,
                                                         cassandra_keyspace,
@@ -256,7 +275,8 @@ async def main(loop):
                                          solr_store,
                                          consumer])
                 async with consumer:
-                    logger.info("All external dependencies have passed the health checks. Now listening to message queue.")
+                    logger.info(
+                        "All external dependencies have passed the health checks. Now listening to message queue.")
                     await consumer.start_consuming(args.max_threads)
             except FailedHealthCheckError as e:
                 logger.error(f"Quitting because not all dependencies passed the health checks: {e}")
@@ -294,7 +314,8 @@ async def main(loop):
                                          consumer])
 
                 async with consumer:
-                    logger.info("All external dependencies have passed the health checks. Now listening to message queue.")
+                    logger.info(
+                        "All external dependencies have passed the health checks. Now listening to message queue.")
                     await consumer.start_consuming(args.max_threads)
             except FailedHealthCheckError as e:
                 logger.error(f"Quitting because not all dependencies passed the health checks: {e}")
