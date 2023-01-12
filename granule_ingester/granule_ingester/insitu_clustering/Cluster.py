@@ -17,9 +17,41 @@ from abc import ABC, abstractmethod
 
 from argparse import Namespace
 import pysolr
+from typing import List, Tuple
+
+from yaml import dump
+
+try:
+    from yaml import CDumper as Dumper
+except ImportError:
+    from yaml import Dumper
+
 
 
 class ClusterSearch(ABC):
     def __init__(self, args: Namespace, solr: pysolr.Solr):
         self._args: Namespace = args
         self._solr: pysolr.Solr = solr
+
+    # Returns uuid list & dataset_s
+    @abstractmethod
+    def _detect_clusters(self) -> Tuple[List[str], str]:
+        pass
+
+    # method: all = empty stage, isolated, max
+    @abstractmethod
+    def flush(self, method, **kwargs):
+        pass
+
+    @staticmethod
+    def _build_message(self, uuids: List[str], dataset: str) -> str:
+        msg_dict = {
+            'type': 'tile',
+            'dataset': dataset,
+            'ids': uuids
+        }
+
+        return dump(msg_dict, Dumper=Dumper, sort_keys=False)
+
+    def start_detecting(self):
+        pass
