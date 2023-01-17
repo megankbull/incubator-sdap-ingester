@@ -206,6 +206,12 @@ async def main(loop):
                              dest='stage_limit_hysteresis',
                              type=int,
                              help=argparse.SUPPRESS)
+    insitu_args.add_argument('--min-tile-size',
+                             default=250,
+                             metavar='observations',
+                             dest='tile_min',
+                             type=int,
+                             help='Min number of observations required for an insitu tile. (Default: 250)')
     insitu_args.add_argument('--max-tile-size',
                              default=0,
                              metavar='observations',
