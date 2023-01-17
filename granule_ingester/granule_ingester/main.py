@@ -197,9 +197,15 @@ async def main(loop):
                              metavar='observations',
                              dest='stage_limit',
                              type=int,
-                             help='Soft limit for number of observations staged in Solr. Can be exceeded, but no further '
-                                  'inputs will be processed until the number of staged observations falls below this value.'
-                                  ' (Default: 500,000)')
+                             help='Soft limit for number of observations staged in Solr. Can be exceeded, but no '
+                                  'further inputs will be processed until the number of staged observations falls below'
+                                  ' this value. (Default: 500,000)')
+    insitu_args.add_argument('--stage-limit-hysteresis',
+                             default=100000,
+                             metavar='observations',
+                             dest='stage_limit_hysteresis',
+                             type=int,
+                             help=argparse.SUPPRESS)
     insitu_args.add_argument('--max-tile-size',
                              default=0,
                              metavar='observations',
