@@ -67,7 +67,7 @@ modules = {
                 'args': ('--FixedGrid:no-lat-shift',),
                 'kwargs': {
                     'action': 'store_false',
-                    'dest': 'FixedGrid:no_lat_shift',
+                    'dest': 'FixedGrid:lat_shift',
                     'help': 'Do not additionally shift latitude by half step'
                 }
             },
@@ -75,7 +75,7 @@ modules = {
                 'args': ('--FixedGrid:no-lon-shift',),
                 'kwargs': {
                     'action': 'store_false',
-                    'dest': 'FixedGrid:no_lon_shift',
+                    'dest': 'FixedGrid:lon_shift',
                     'help': 'Do not additionally shift longitude by half step'
                 }
             },
@@ -94,7 +94,7 @@ modules = {
                 'args': ('--FixedGrid:no-time-shift',),
                 'kwargs': {
                     'action': 'store_false',
-                    'dest': 'FixedGrid:no_time_shift',
+                    'dest': 'FixedGrid:time_shift',
                     'help': 'Do not additionally shift time by half step'
                 }
             },
