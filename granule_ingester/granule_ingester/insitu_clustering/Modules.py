@@ -23,7 +23,7 @@ class Dummy:
 
 
 def _parse_td(td):
-    return pd.Timedelta(td).to_pytimedelta()
+    return int(pd.Timedelta(td).total_seconds())
 
 
 modules = {
@@ -90,14 +90,14 @@ modules = {
                             '(Default: 1d)'
                 }
             },
-            {
-                'args': ('--FixedGrid:no-time-shift',),
-                'kwargs': {
-                    'action': 'store_false',
-                    'dest': 'FixedGrid:time_shift',
-                    'help': 'Do not additionally shift time by half step'
-                }
-            },
+            # {
+            #     'args': ('--FixedGrid:no-time-shift',),
+            #     'kwargs': {
+            #         'action': 'store_false',
+            #         'dest': 'FixedGrid:time_shift',
+            #         'help': 'Do not additionally shift time by half step'
+            #     }
+            # },
         ]
     }
 }
