@@ -13,12 +13,214 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from granule_ingester.insitu_clustering import ClusterSearch
+import logging
 from argparse import Namespace
+from itertools import cycle
+from time import sleep
+from typing import Tuple, List
+
+import numpy as np
 import pysolr
+from aio_pika import connect_robust
+from granule_ingester.insitu_clustering import ClusterSearch
+
+logger = logging.getLogger(__name__)
+
+DELAY = 0.1
 
 
 class FixedGridSearch(ClusterSearch):
     def __init__(self, args: Namespace, solr: pysolr.Solr):
-        ClusterSearch.__init__(args, solr)
+        ClusterSearch.__init__(self, args, solr)
 
+        self.__geos = self.__generate_geo_params()
+
+        self.__pass = 0
+        self.__prev_pass = 0
+
+    def __param(self, param):
+        return getattr(self._args, f'FixedGrid:{param}')
+
+    def __generate_geo_params(self):
+        geos = []
+
+        step_size_lat = self.__param('lat_step')
+        step_size_lon = self.__param('lon_step')
+
+        lat_shift = self.__param('lat_shift')
+        lon_shift = self.__param('lon_shift')
+
+        start_lon = -180
+        start_lat = -90
+
+        geos.extend(FixedGridSearch.__geo(start_lat,
+                                          start_lon,
+                                          step_size_lat,
+                                          step_size_lon))
+
+        if lat_shift:
+            geos.extend(FixedGridSearch.__geo(start_lat + (step_size_lat / 2),
+                                              start_lon,
+                                              step_size_lat,
+                                              step_size_lon))
+
+        if lon_shift:
+            geos.extend(FixedGridSearch.__geo(start_lat,
+                                              start_lon + (step_size_lon / 2),
+                                              step_size_lat,
+                                              step_size_lon))
+
+        if lat_shift and lon_shift:
+            geos.extend(FixedGridSearch.__geo(start_lat + (step_size_lat / 2),
+                                              start_lon + (step_size_lon / 2),
+                                              step_size_lat,
+                                              step_size_lon))
+
+        geos.sort()
+        return geos
+
+    @staticmethod
+    def __geo(start_lat, start_lon, step_lat, step_lon):
+        geos = []
+
+        for lon in np.arange(start_lon, 180+step_lon, step_lon):
+            min_lon = lon
+            max_lon = min(180, lon + step_lon)
+
+            if min_lon == max_lon:
+                continue
+
+            for lat in np.arange(start_lat, 90+step_lat, step_lat):
+                min_lat = lat
+                max_lat = min(90, lat + step_lat)
+
+                if min_lat == max_lat:
+                    continue
+
+                geos.append((min_lon, min_lat, max_lon, max_lat))
+
+        return geos
+
+    def __get_queue_length(self) -> int:
+        connection_string = f"amqp://{self._rmq_user}:{self._rmq_password}@{self._rmq_host}/"
+        connection = await connect_robust(connection_string)
+        channel = await connection.channel()
+
+        res = await channel.declare_queue(self._args.insitu_rmq_stage, durable=True)
+        return int(res.declaration_result.message_count)
+
+    def __get_stage_count(self) -> int:
+        return self._solr.search('*:*', **{'rows': 0}).hits
+
+    def __query_geo(self, geo):
+        q = '*:*'
+        additional_params = {
+            'fq': [f"geo:[{geo[1]},{geo[0]} TO {geo[3]},{geo[2]}]"],
+            'rows': 10000,
+            'sort': 'time asc, id asc',
+            'cursorMark': '*'
+        }
+
+        solr_docs = []
+
+        while True:
+            solr_result = self._solr.search(q, **additional_params)
+
+            solr_docs.extend(solr_result.docs)
+
+            if solr_result.nextCursorMark == additional_params['cursorMark']:
+                break
+            else:
+                additional_params['cursorMark'] = solr_result.nextCursorMark
+
+        return solr_docs
+
+    @staticmethod
+    def __bin_by_time(observations, bin_length):
+        times = [o['time'] for o in observations]
+        min_time = min(times)
+        max_time = max(times)
+
+        bins = list(range(min_time, max_time, bin_length))
+
+        if bins[-1] != max_time:
+            bins.append(max_time)
+
+        ret = {}
+
+        for i, bin_min in enumerate(bins[:-1]):
+            bin_max = bins[i+1]
+
+            for observation in observations[:]:
+                if bin_min <= observation['time'] <= bin_max:
+                    if bin_min not in ret:
+                        ret[bin_min] = []
+
+                    ret[bin_min].append(observation)
+                    observations.remove(observation)
+
+        return ret
+
+    def _detect_clusters(self) -> Tuple[List[str], str]:
+        geos = cycle(self.__geos)
+        mapping = {}  # maps geo to map of time bins to obs counts, used to reap most isolated / max to tiles
+
+        def geo_to_str(geo_tuple):
+            return ' '.join([str(g) for g in geo_tuple])
+
+        logger.info('Starting cluster detection')
+
+        while True:
+            # If we've preprocessed all incoming granules; flush everything since we won't be getting a new cluster with
+            # no more incoming observations
+            if self.__get_queue_length() == 0 and len(mapping) == len(self.__geos):
+                logger.info('Staging queue is empty, flushing stage to tiles and waiting for new inputs')
+
+                for uuids, dataset in self._flush('all', mapping):
+                    yield uuids, dataset
+                geos = cycle(self.__geos)
+
+                while self.__get_queue_length() == 0 and self.__get_stage_count() == 0:
+                    sleep(5)
+            # If the staging collection is full, flush both the isolated observations and the observations closest to
+            # forming acceptable clusters until we can add more observations to staging.
+            elif self.__get_stage_count() >= self._args.stage_limit and len(mapping) == len(self.__geos):
+                logger.info('Insitu stage is full, flushing some observations to tiles')
+
+                to_flush = self._flush('isolated', mapping, count=2, common=True)
+                to_flush.extend(self._flush('max', mapping, count=5))
+
+                for uuids, dataset in to_flush:
+                    yield uuids, dataset
+
+                while self.__get_stage_count() >= self._args.stage_limit - self._args.stage_limit_hysteresis:
+                    for uuids, dataset in self._flush('max', mapping, count=5):
+                        yield uuids, dataset
+            else:
+                geo = next(geos)
+
+                observations = self.__query_geo(geo)
+                binned = FixedGridSearch.__bin_by_time(observations, self.__param('time'))
+
+                for bin_time in list(binned.keys()):
+                    current_bin = binned[bin_time]
+                    bin_count = len(current_bin)
+
+                    if bin_count >= self._args.tile_min:
+                        datasets = set([o['dataset_s'] for o in current_bin])
+                        for dataset in datasets:
+                            tile_observations = [o for o in current_bin if o['dataset_s'] == dataset]
+
+                            for o in tile_observations:
+                                current_bin.remove(o)
+
+                            uuids = [o['id'] for o in tile_observations]
+
+                            yield uuids, dataset
+
+                mapping[geo_to_str(geo)] = binned
+
+            sleep(DELAY)
+
+    def _flush(self, method, mapping, **kwargs) -> List[Tuple[List[str], str]]:
+        pass
