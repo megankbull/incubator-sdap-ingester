@@ -24,6 +24,7 @@ from granule_ingester.consumer import MessageConsumer, InsituConsumer
 from granule_ingester.exceptions import FailedHealthCheckError, LostConnectionError
 from granule_ingester.healthcheck import HealthCheck
 from granule_ingester.insitu_clustering.Modules import modules as clustering_methods
+from granule_ingester.insitu_clustering.Cluster import ClusterSearch
 from granule_ingester.writers import CassandraStore, SolrStore
 from granule_ingester.writers.ElasticsearchStore import ElasticsearchStore
 
@@ -369,7 +370,12 @@ async def main(loop):
         finally:
             sys.exit(1)
     elif insitu_mode == 'cluster':
-        pass
+        solr_stage = solr_factory(solr_host_and_port, zk_host_and_port, args.insitu_stage)
+        await run_health_checks([solr_stage])
+
+        cluster: ClusterSearch = clustering_methods[args.cluster_method]['cls'](args, solr_stage.get_solr())
+
+        cluster.start_detecting()
     elif insitu_mode == 'tile':
         data_store_factory = partial(cassandra_factory,
                                      cassandra_contact_points,
