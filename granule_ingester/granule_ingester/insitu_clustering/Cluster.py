@@ -14,11 +14,10 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-
 from argparse import Namespace
-import pysolr
 from typing import List, Tuple
 
+import pysolr
 from yaml import dump
 
 try:
@@ -26,6 +25,11 @@ try:
 except ImportError:
     from yaml import Dumper
 
+from granule_ingester.insitu_clustering.MessagePublisher import MessagePublisher
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ClusterSearch(ABC):
