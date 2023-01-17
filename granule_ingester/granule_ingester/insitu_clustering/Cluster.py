@@ -52,7 +52,7 @@ class ClusterSearch(ABC):
     # method: all = empty stage, isolated, max
     # returns list of cluster tuples
     @abstractmethod
-    def flush(self, method, **kwargs) -> List[Tuple[List[str], str]]:
+    def _flush(self, method, mapping=None, **kwargs) -> List[Tuple[List[str], str]]:
         pass
 
     @staticmethod
