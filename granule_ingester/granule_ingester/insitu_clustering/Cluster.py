@@ -56,7 +56,7 @@ class ClusterSearch(ABC):
         pass
 
     @staticmethod
-    def _build_message(self, uuids: List[str], dataset: str) -> str:
+    def _build_message(uuids: List[str], dataset: str) -> str:
         msg_dict = {
             'type': 'tile',
             'dataset': dataset,
