@@ -15,3 +15,4 @@
 
 from granule_ingester.insitu_clustering.Cluster import ClusterSearch
 from granule_ingester.insitu_clustering.FixedGridSearch import FixedGridSearch
+from granule_ingester.insitu_clustering.MessagePublisher import MessagePublisher
