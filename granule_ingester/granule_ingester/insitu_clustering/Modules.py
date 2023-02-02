@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import argparse
 
 import pandas as pd
 
@@ -64,19 +65,19 @@ modules = {
                 }
             },
             {
-                'args': ('--FixedGrid:no-lat-shift',),
+                'args': ('--FixedGrid:lat-shift',),
                 'kwargs': {
-                    'action': 'store_false',
+                    'action': 'store_true',
                     'dest': 'FixedGrid:lat_shift',
-                    'help': 'Do not additionally shift latitude by half step'
+                    'help': argparse.SUPPRESS
                 }
             },
             {
-                'args': ('--FixedGrid:no-lon-shift',),
+                'args': ('--FixedGrid:lon-shift',),
                 'kwargs': {
-                    'action': 'store_false',
+                    'action': 'store_true',
                     'dest': 'FixedGrid:lon_shift',
-                    'help': 'Do not additionally shift longitude by half step'
+                    'help': argparse.SUPPRESS
                 }
             },
             {

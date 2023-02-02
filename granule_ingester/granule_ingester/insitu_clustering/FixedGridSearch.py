@@ -38,6 +38,8 @@ class FixedGridSearch(ClusterSearch):
         self.__pass = 0
         self.__prev_pass = 0
 
+        self.__mapping = {}  # maps geo to map of time bins to obs counts, used to reap most isolated / max to tiles
+
     def __param(self, param):
         return getattr(self._args, f'FixedGrid:{param}')
 
@@ -58,23 +60,23 @@ class FixedGridSearch(ClusterSearch):
                                           step_size_lat,
                                           step_size_lon))
 
-        if lat_shift:
-            geos.extend(FixedGridSearch.__geo(start_lat + (step_size_lat / 2),
-                                              start_lon,
-                                              step_size_lat,
-                                              step_size_lon))
-
-        if lon_shift:
-            geos.extend(FixedGridSearch.__geo(start_lat,
-                                              start_lon + (step_size_lon / 2),
-                                              step_size_lat,
-                                              step_size_lon))
-
-        if lat_shift and lon_shift:
-            geos.extend(FixedGridSearch.__geo(start_lat + (step_size_lat / 2),
-                                              start_lon + (step_size_lon / 2),
-                                              step_size_lat,
-                                              step_size_lon))
+        # if lat_shift:
+        #     geos.extend(FixedGridSearch.__geo(start_lat + (step_size_lat / 2),
+        #                                       start_lon,
+        #                                       step_size_lat,
+        #                                       step_size_lon))
+        #
+        # if lon_shift:
+        #     geos.extend(FixedGridSearch.__geo(start_lat,
+        #                                       start_lon + (step_size_lon / 2),
+        #                                       step_size_lat,
+        #                                       step_size_lon))
+        #
+        # if lat_shift and lon_shift:
+        #     geos.extend(FixedGridSearch.__geo(start_lat + (step_size_lat / 2),
+        #                                       start_lon + (step_size_lon / 2),
+        #                                       step_size_lat,
+        #                                       step_size_lon))
 
         geos.sort()
         return geos
@@ -112,16 +114,13 @@ class FixedGridSearch(ClusterSearch):
     def __get_stage_count(self) -> int:
         return self._solr.search('*:*', **{'rows': 0}).hits
 
-    def __query_geo(self, geo):
-        q = '*:*'
-        additional_params = {
-            'fq': [f"geo:[{geo[1]},{geo[0]} TO {geo[3]},{geo[2]}]"],
-            'rows': 10000,
-            'sort': 'time asc, id asc',
-            'cursorMark': '*'
-        }
-
+    def __query_solr(self, q='*:*', additional_params=None):
         solr_docs = []
+        if additional_params is None:
+            additional_params = {'cursorMark': '*'}
+
+        if 'cursorMark' not in additional_params:
+            additional_params['cursorMark'] = '*'
 
         while True:
             solr_result = self._solr.search(q, **additional_params)
@@ -134,6 +133,17 @@ class FixedGridSearch(ClusterSearch):
                 additional_params['cursorMark'] = solr_result.nextCursorMark
 
         return solr_docs
+
+    def __query_geo(self, geo):
+        q = '*:*'
+        additional_params = {
+            'fq': [f"geo:[{geo[1]},{geo[0]} TO {geo[3]},{geo[2]}]"],
+            'rows': 10000,
+            'sort': 'time asc, id asc',
+            'cursorMark': '*'
+        }
+
+        return self.__query_solr(q, additional_params)
 
     @staticmethod
     def __bin_by_time(observations, bin_length):
@@ -163,7 +173,6 @@ class FixedGridSearch(ClusterSearch):
 
     def _detect_clusters(self) -> Tuple[List[str], str]:
         geos = cycle(self.__geos)
-        mapping = {}  # maps geo to map of time bins to obs counts, used to reap most isolated / max to tiles
 
         def geo_to_str(geo_tuple):
             return ' '.join([str(g) for g in geo_tuple])
@@ -173,10 +182,10 @@ class FixedGridSearch(ClusterSearch):
         while True:
             # If we've preprocessed all incoming granules; flush everything since we won't be getting a new cluster with
             # no more incoming observations
-            if self.__get_queue_length() == 0 and len(mapping) == len(self.__geos):
+            if self.__get_queue_length() == 0 and len(self.__mapping) == len(self.__geos):
                 logger.info('Staging queue is empty, flushing stage to tiles and waiting for new inputs')
 
-                for uuids, dataset in self._flush('all', mapping):
+                for uuids, dataset in self._flush('all'):
                     yield uuids, dataset
                 geos = cycle(self.__geos)
 
@@ -184,17 +193,17 @@ class FixedGridSearch(ClusterSearch):
                     sleep(5)
             # If the staging collection is full, flush both the isolated observations and the observations closest to
             # forming acceptable clusters until we can add more observations to staging.
-            elif self.__get_stage_count() >= self._args.stage_limit and len(mapping) == len(self.__geos):
+            elif self.__get_stage_count() >= self._args.stage_limit and len(self.__mapping) == len(self.__geos):
                 logger.info('Insitu stage is full, flushing some observations to tiles')
 
-                to_flush = self._flush('isolated', mapping, count=2, common=True)
-                to_flush.extend(self._flush('max', mapping, count=5))
+                to_flush = self._flush('isolated', count=2)
+                to_flush.extend(self._flush('max', count=5))
 
                 for uuids, dataset in to_flush:
                     yield uuids, dataset
 
                 while self.__get_stage_count() >= self._args.stage_limit - self._args.stage_limit_hysteresis:
-                    for uuids, dataset in self._flush('max', mapping, count=5):
+                    for uuids, dataset in self._flush('max', count=5):
                         yield uuids, dataset
             else:
                 geo = next(geos)
@@ -218,9 +227,71 @@ class FixedGridSearch(ClusterSearch):
 
                             yield uuids, dataset
 
-                mapping[geo_to_str(geo)] = binned
+                self.__mapping[geo_to_str(geo)] = binned
 
             sleep(DELAY)
 
-    def _flush(self, method, mapping, **kwargs) -> List[Tuple[List[str], str]]:
-        pass
+    def _flush(self, method, **kwargs) -> List[Tuple[List[str], str]]:
+        if method == 'all':
+            ret = []
+
+            for geo in self.__mapping:
+                for bin_time in self.__mapping[geo]:
+                    current_bin = self.__mapping[geo][bin_time]
+
+                    datasets = set([o['dataset_s'] for o in current_bin])
+                    for dataset in datasets:
+                        tile_observations = [o for o in current_bin if o['dataset_s'] == dataset]
+                        uuids = [o['id'] for o in tile_observations]
+                        ret.append((uuids, dataset))
+
+            self.__mapping = {}
+            return ret
+        elif method == 'isolated' or method == 'max':
+            length_map = {}
+
+            for geo in self.__mapping:
+                for bin_time in self.__mapping[geo]:
+                    current_bin = self.__mapping[geo][bin_time]
+
+                    datasets = set([o['dataset_s'] for o in current_bin])
+                    for dataset in datasets:
+                        tile_observations = [o for o in current_bin if o['dataset_s'] == dataset]
+                        uuids = [o['id'] for o in tile_observations]
+
+                        length = len(uuids)
+
+                        if length not in length_map:
+                            length_map = []
+
+                        length_map[length].append({
+                            'uuids': uuids,
+                            'ds': dataset,
+                            'geo': geo,
+                            'bin_time': bin_time
+                        })
+
+            lengths = list(length_map.keys())
+            if 'count' not in kwargs:
+                count = 5
+            else:
+                count = kwargs['count']
+
+            if method == 'isolated':
+                lengths.sort()
+            else:
+                lengths.sort(reverse=True)
+
+            selection = lengths[:count]
+
+            ret = []
+
+            for length in selection:
+                l = length_map[length]
+                for tile in l:
+                    ret.append((tile['uuids'], tile['ds']))
+                    self.__mapping[tile['geo']][tile['bin_time']] = []
+
+            return ret
+        else:
+            raise ValueError(f'Invalid flush method {method}')
