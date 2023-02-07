@@ -30,6 +30,7 @@ from collection_manager.services.history_manager.IngestionHistory import \
 logger = logging.getLogger(__name__)
 
 SUPPORTED_FILE_EXTENSIONS = ['.nc', '.nc4', '.h5']
+SUPPORTED_INSITU_FILE_EXTENSIONS = ['.json', '.gz']
 
 
 class CollectionProcessor:
@@ -49,7 +50,7 @@ class CollectionProcessor:
         :param collection: A Collection against which to evaluate the granule
         :return: None
         """
-        if not self._file_supported(granule):
+        if not self._file_supported(granule, SUPPORTED_FILE_EXTENSIONS if not collection.insitu else SUPPORTED_INSITU_FILE_EXTENSIONS):
             return
 
         history_manager = self._get_history_manager(collection.dataset_id)
@@ -80,9 +81,9 @@ class CollectionProcessor:
         await history_manager.push(granule, modified_time)
 
     @staticmethod
-    def _file_supported(file_path: str):
+    def _file_supported(file_path: str, valid_extensions=SUPPORTED_FILE_EXTENSIONS):
         ext = os.path.splitext(file_path)[-1]
-        return ext in SUPPORTED_FILE_EXTENSIONS
+        return ext in valid_extensions
 
     def _get_history_manager(self, dataset_id: str) -> IngestionHistory:
         if dataset_id not in self._history_manager_cache:

@@ -17,6 +17,7 @@ from granule_ingester.granule_loaders.GranuleLoader import GranuleLoader
 
 import logging
 import os
+import gzip
 from urllib import parse
 
 import json
@@ -54,9 +55,20 @@ class InsituLoader:
             raise RuntimeError("Granule path scheme '{}' is not supported.".format(resource_url.scheme))
 
         granule_name = os.path.basename(self._resource)
+        ext = os.path.splitext(file_path)[-1]
         try:
-            return json.load(open(file_path)), granule_name
+            if ext == '.json':
+                return json.load(open(file_path)), granule_name
+            elif ext == '.gz':
+                with gzip.open(file_path, 'r') as gz:
+                    json_str = gz.read().decode('utf-8')
+
+                return json.loads(json_str), granule_name
+            else:
+                raise GranuleLoadingError(f"The insitu file {self._resource} is of an unsupported file type {ext}.")
+        except GranuleLoadingError:
+            raise
         except FileNotFoundError:
             raise GranuleLoadingError(f"The insitu file {self._resource} does not exist.")
         except Exception:
-            raise GranuleLoadingError(f"The insitu file {self._resource} is not a valid NetCDF file.")
+            raise GranuleLoadingError(f"The insitu file {self._resource} is not a valid file.")
