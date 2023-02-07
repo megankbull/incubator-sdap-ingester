@@ -34,8 +34,11 @@ SUPPORTED_FILE_EXTENSIONS = ['.nc', '.nc4', '.h5']
 
 class CollectionProcessor:
 
-    def __init__(self, message_publisher: MessagePublisher, history_manager_builder: IngestionHistoryBuilder):
+    def __init__(self, message_publisher: MessagePublisher,
+                 history_manager_builder: IngestionHistoryBuilder,
+                 insitu_publisher=None):
         self._publisher = message_publisher
+        self._insitu_publisher = insitu_publisher
         self._history_manager_builder = history_manager_builder
         self._history_manager_cache: Dict[str, IngestionHistory] = {}
 
@@ -72,7 +75,8 @@ class CollectionProcessor:
             return
 
         dataset_config = self._generate_ingestion_message(granule, collection)
-        await self._publisher.publish_message(body=dataset_config, priority=use_priority)
+        publisher = self._publisher if not collection.insitu else self._insitu_publisher
+        await publisher.publish_message(body=dataset_config, priority=use_priority)
         await history_manager.push(granule, modified_time)
 
     @staticmethod
@@ -107,21 +111,29 @@ class CollectionProcessor:
         processors.append({'name': 'generateTileId'})
 
         return processors
-    
 
     @staticmethod
     def _generate_ingestion_message(granule_path: str, collection: Collection) -> str:
+        if collection.insitu:
+            config_dict = {
+                'type': 'observations',
+                'granule': {
+                    'resource': granule_path,
+                    'dataset': collection.dataset_id
+                }
+            }
+        else:
+            config_dict = {
+                'granule': {
+                    'resource': granule_path
+                },
+                'slicer': {
+                    'name': 'sliceFileByStepSize',
+                    'dimension_step_sizes': dict(collection.slices)
+                },
+                'processors': CollectionProcessor._get_default_processors(collection)
+            }
 
-        config_dict = {
-            'granule': {
-                'resource': granule_path
-            },
-            'slicer': {
-                'name': 'sliceFileByStepSize',
-                'dimension_step_sizes': dict(collection.slices)
-            },
-            'processors': CollectionProcessor._get_default_processors(collection)
-        }
         config_str = yaml.dump(config_dict)
         logger.debug(f"Templated dataset config:\n{config_str}")
         return config_str

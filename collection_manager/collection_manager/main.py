@@ -64,7 +64,10 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--rabbitmq-queue',
                         default="nexus",
                         metavar="QUEUE",
-                        help='Name of the RabbitMQ queue to consume from. (Default: "nexus")')
+                        help='Name of the RabbitMQ queue to publish to (satellite granules). (Default: "nexus")')
+    parser.add_argument('--insitu-queue',
+                        metavar="QUEUE",
+                        help='Name of the RabbitMQ queue to publish to (insitu json). (Default: "insitu-stage")')
     parser.add_argument('--refresh',
                         default='30',
                         metavar="INTERVAL",
@@ -88,23 +91,51 @@ async def main():
         else:
             history_manager_builder = SolrIngestionHistoryBuilder(solr_url=options.history_url,
                                                                   signature_fun=signature_fun)
-        async with MessagePublisher(host=options.rabbitmq_host,
-                                    username=options.rabbitmq_username,
-                                    password=options.rabbitmq_password,
-                                    queue=options.rabbitmq_queue) as publisher:
-            collection_processor = CollectionProcessor(message_publisher=publisher,
-                                                       history_manager_builder=history_manager_builder)
-            collection_watcher = CollectionWatcher(collections_path=options.collections_path,
-                                                   granule_updated_callback=collection_processor.process_granule,
-                                                   collections_refresh_interval=int(options.refresh),
-                                                   s3_bucket=options.s3_bucket)
 
-            await collection_watcher.start_watching()
-            while True:
-                try:
-                    await asyncio.sleep(1)
-                except KeyboardInterrupt:
-                    return
+        granule_publisher = MessagePublisher(host=options.rabbitmq_host,
+                                             username=options.rabbitmq_username,
+                                             password=options.rabbitmq_password,
+                                             queue=options.rabbitmq_queue)
+
+        if options.insitu_queue is not None:
+            staging_publisher = MessagePublisher(host=options.rabbitmq_host,
+                                                 username=options.rabbitmq_username,
+                                                 password=options.rabbitmq_password,
+                                                 queue=options.insitu_queue)
+        else:
+            staging_publisher = None
+
+        async with granule_publisher as publisher:
+            if staging_publisher:
+                async with staging_publisher as insitu_publisher:
+                    collection_processor = CollectionProcessor(message_publisher=publisher,
+                                                               history_manager_builder=history_manager_builder,
+                                                               insitu_publisher=insitu_publisher)
+                    collection_watcher = CollectionWatcher(collections_path=options.collections_path,
+                                                           granule_updated_callback=collection_processor.process_granule,
+                                                           collections_refresh_interval=int(options.refresh),
+                                                           s3_bucket=options.s3_bucket)
+
+                    await collection_watcher.start_watching()
+                    while True:
+                        try:
+                            await asyncio.sleep(1)
+                        except KeyboardInterrupt:
+                            return
+            else:
+                collection_processor = CollectionProcessor(message_publisher=publisher,
+                                                           history_manager_builder=history_manager_builder)
+                collection_watcher = CollectionWatcher(collections_path=options.collections_path,
+                                                       granule_updated_callback=collection_processor.process_granule,
+                                                       collections_refresh_interval=int(options.refresh),
+                                                       s3_bucket=options.s3_bucket)
+
+                await collection_watcher.start_watching()
+                while True:
+                    try:
+                        await asyncio.sleep(1)
+                    except KeyboardInterrupt:
+                        return
 
     except Exception as e:
         logger.exception(e)
