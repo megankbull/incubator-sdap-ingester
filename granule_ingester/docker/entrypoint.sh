@@ -35,5 +35,6 @@ python /sdap/granule_ingester/main.py \
   $([[ ! -z "$ELASTIC_PASSWORD" ]] && echo --elastic-password=$ELASTIC_PASSWORD) \
   $([[ ! -z "$ELASTIC_INDEX" ]] && echo --elastic-index=$ELASTIC_INDEX) \
   $([[ ! -z "$MAX_THREADS" ]] && echo --max-threads=$MAX_THREADS) \
-  $([[ ! -z "$VERBOSE" ]] && echo --verbose)
-  $([[ ! -z "$IS_VERBOSE" ]] && echo --verbose)
+  $([[ ! -z "$VERBOSE" ]] && echo --verbose) \
+  $([[ ! -z "$IS_VERBOSE" ]] && echo --verbose) \
+  "$@"

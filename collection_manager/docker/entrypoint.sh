@@ -25,4 +25,5 @@ python /collection_manager/collection_manager/main.py \
   $([[ ! -z "$HISTORY_URL" ]] && echo --history-url=$HISTORY_URL) \
   $([[ ! -z "$HISTORY_PATH" ]] && echo --history-path=$HISTORY_PATH) \
   $([[ ! -z "$REFRESH" ]] && echo --refresh=$REFRESH) \
-  $([[ ! -z "$S3_BUCKET" ]] && echo --s3-bucket=$S3_BUCKET)
+  $([[ ! -z "$S3_BUCKET" ]] && echo --s3-bucket=$S3_BUCKET) \
+  "$@"
