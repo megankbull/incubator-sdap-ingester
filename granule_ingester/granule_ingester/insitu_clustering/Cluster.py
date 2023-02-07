@@ -71,9 +71,12 @@ class ClusterSearch(ABC):
         for uuids, dataset in self._detect_clusters():
             logger.info(f'Found cluster of {len(uuids)} observations for dataset {dataset}')
             logger.debug('Building rmq message')
+
             message = ClusterSearch._build_message(uuids, dataset)
 
             logger.debug('Publishing to rmq')
+            logger.debug('Message:\n' + message)
+
             async with self._rmq:
                 await self._rmq.publish_message(message)
 

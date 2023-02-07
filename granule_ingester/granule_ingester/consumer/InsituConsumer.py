@@ -195,6 +195,8 @@ class InsituConsumer(HealthCheck):
                                 metadata_store_factory,
                                 stage_factory,
                                 message_type):
+        logger.info('Received message from queue')
+
         message_str = message.body.decode('utf-8')
         logger.debug(message_str)
         input_config = load(message_str, Loader=Loader)
@@ -206,6 +208,8 @@ class InsituConsumer(HealthCheck):
             if message_type == 'preprocess':
                 dataset_s = input_config['granule']['dataset']
                 file_url = input_config['granule']['resource']
+
+                logger.info(f'Preprocessing input file {file_url}')
 
                 loader = InsituLoader(resource=file_url)
 
@@ -237,14 +241,21 @@ class InsituConsumer(HealthCheck):
                             "time": time
                         })
 
-                solr = metadata_store_factory()
+                logger.info(f'Processed input file into {len(observation_docs)} observations')
+                logger.info('Writing observations to Solr')
 
+                solr = metadata_store_factory()
                 await solr.save_batch_insitu(observation_docs)
             elif message_type == 'tile':
                 uuids = input_config['ids']
+                dataset = input_config['dataset']
                 solr_stage = stage_factory()
 
-                tile, metadata = await GenerateInsituTile.generate(uuids, input_config['dataset'], solr_stage.get_solr(), )
+                logger.info(f'Generating insitu tile for dataset {dataset} with {len(uuids)} observations')
+
+                tile, metadata = await GenerateInsituTile.generate(uuids, dataset, solr_stage.get_solr(), )
+
+                logger.info('Generated tile')
 
                 solr_store = metadata_store_factory()
                 data_store = data_store_factory()

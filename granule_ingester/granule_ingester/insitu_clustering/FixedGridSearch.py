@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import json
 from argparse import Namespace
 from itertools import cycle
 from time import sleep
@@ -79,6 +80,11 @@ class FixedGridSearch(ClusterSearch):
         #                                       step_size_lon))
 
         geos.sort()
+
+        logger.debug('Generated geo search param list:\n' + json.dumps(
+            [f"[{geo[1]},{geo[0]} TO {geo[3]},{geo[2]}]" for geo in geos], indent=4)
+                     )
+
         return geos
 
     @staticmethod
@@ -109,10 +115,16 @@ class FixedGridSearch(ClusterSearch):
         channel = await connection.channel()
 
         res = await channel.declare_queue(self._args.insitu_rmq_stage, durable=True)
-        return int(res.declaration_result.message_count)
+
+        length = int(res.declaration_result.message_count)
+        logger.info(f'There are {length} files waiting to be staged')
+
+        return length
 
     def __get_stage_count(self) -> int:
-        return self._solr.search('*:*', **{'rows': 0}).hits
+        count = self._solr.search('*:*', **{'rows': 0}).hits
+        logger.info(f'There is a total of {count} observations staged in Solr')
+        return count
 
     def __query_solr(self, q='*:*', additional_params=None):
         solr_docs = []
@@ -156,6 +168,8 @@ class FixedGridSearch(ClusterSearch):
         if bins[-1] != max_time:
             bins.append(max_time)
 
+        logger.debug(f'Binning {len(observations)} into {len(bins)} bins')
+
         ret = {}
 
         for i, bin_min in enumerate(bins[:-1]):
@@ -168,6 +182,10 @@ class FixedGridSearch(ClusterSearch):
 
                     ret[bin_min].append(observation)
                     observations.remove(observation)
+
+        logger.debug('Binned observation counts:')
+        for bin_min in ret:
+            logger.debug(f'{bin_min}: {len(ret[bin_min])}')
 
         return ret
 
@@ -216,6 +234,7 @@ class FixedGridSearch(ClusterSearch):
                     bin_count = len(current_bin)
 
                     if bin_count >= self._args.tile_min:
+                        logger.info('Detected cluster - Prepping info for tile generation')
                         datasets = set([o['dataset_s'] for o in current_bin])
                         for dataset in datasets:
                             tile_observations = [o for o in current_bin if o['dataset_s'] == dataset]
