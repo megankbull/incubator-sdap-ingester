@@ -230,7 +230,7 @@ class Pipeline:
 
                 results = []
 
-                batches = self._chunk_list(serialized_tiles, BATCH_SIZE)
+                batches = self._chunk_list(serialized_tiles, BATCH_SIZE, self._max_concurrency)
 
                 for chunk in self._chunk_list(batches, MAX_CHUNK_SIZE):
                     try:
@@ -260,5 +260,13 @@ class Pipeline:
         logger.info("Pipeline finished in {} seconds".format(end - start))
 
     @staticmethod
-    def _chunk_list(items, chunk_size: int):
-        return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+    def _chunk_list(items, chunk_size=0, num_desired=0):
+        if num_desired > 0:
+            chunks = [[] for i in range(num_desired)]
+
+            for i in range(min(len(items), num_desired)):
+                chunks[i].extend(items[i::num_desired])
+
+            return chunks
+        else:
+            return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]

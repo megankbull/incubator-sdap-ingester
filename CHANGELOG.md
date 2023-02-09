@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 ### Changed
+- SDAP-439: Updated chunking to make best use of all worker processes
 ### Deprecated
 ### Removed
 ### Fixed
