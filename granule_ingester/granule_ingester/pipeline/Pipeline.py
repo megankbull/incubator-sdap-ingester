@@ -59,11 +59,17 @@ def _init_worker(processor_list, dataset, data_store_factory, metadata_store_fac
     _shared_memory = shared_memory
 
     logging.basicConfig(level=log_level, format="%(asctime)s [%(levelname)s] [%(processName)s::%(process)d] [%(name)s::%(lineno)d] %(message)s")
-
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] [%(processName)s::%(process)d] [%(name)s::%(lineno)d] %(message)s")
     logging.getLogger("").setLevel(log_level)
     loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
     for logger in loggers:
         logger.setLevel(log_level)
+        for handler in logger.handlers:
+            handler.setFormatter(formatter)
+
+    for handler in logging.root.handlers:
+        handler.setFormatter(formatter)
 
     logger.debug("worker init")
 
