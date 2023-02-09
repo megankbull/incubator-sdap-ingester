@@ -139,7 +139,7 @@ async def main(loop):
     args = parser.parse_args()
 
     logging_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(level=logging_level)
+    logging.basicConfig(level=logging_level, format="%(asctime)s [%(levelname)s] [%(processName)s::%(process)d] [%(name)s::%(lineno)d] %(message)s")
     logging.getLogger("").setLevel(logging_level)
     loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
     for logger in loggers:
