@@ -68,7 +68,8 @@ class MessageConsumer(HealthCheck):
     async def _received_message(message: aio_pika.IncomingMessage,
                                 data_store_factory,
                                 metadata_store_factory,
-                                pipeline_max_concurrency: int,
+                                max_threads: int,
+                                max_workers: int,
                                 log_level=logging.INFO):
         logger.info("Received a job from the queue. Starting pipeline.")
         try:
@@ -77,7 +78,8 @@ class MessageConsumer(HealthCheck):
             pipeline = Pipeline.from_string(config_str=config_str,
                                             data_store_factory=data_store_factory,
                                             metadata_store_factory=metadata_store_factory,
-                                            max_concurrency=pipeline_max_concurrency)
+                                            max_threads=max_threads,
+                                            max_workers=max_workers)
             pipeline.set_log_level(log_level)
             await pipeline.run()
             await message.ack()
@@ -95,7 +97,7 @@ class MessageConsumer(HealthCheck):
             await message.reject(requeue=True)
             logger.exception(f"Processing message failed. Message will be re-queued. The exception was:\n{e}")
 
-    async def start_consuming(self, pipeline_max_concurrency=16):
+    async def start_consuming(self, max_threads=4, max_workers=4):
         channel = await self._connection.channel()
         await channel.set_qos(prefetch_count=1)
         queue = await channel.declare_queue(self._rabbitmq_queue, durable=True, arguments={'x-max-priority': 10})
@@ -105,7 +107,8 @@ class MessageConsumer(HealthCheck):
                 await self._received_message(message,
                                              self._data_store_factory,
                                              self._metadata_store_factory,
-                                             pipeline_max_concurrency,
+                                             max_threads,
+                                             max_workers,
                                              self._level)
             except aio_pika.exceptions.MessageProcessError:
                 # Do not try to close() the queue iterator! If we get here, that means the RabbitMQ

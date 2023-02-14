@@ -128,9 +128,16 @@ async def main(loop):
     
     # OTHERS
     parser.add_argument('--max-threads',
-                        default=16,
+                        default=4,
                         metavar='MAX_THREADS',
-                        help='Maximum number of threads to use when processing granules. (Default: 16)')
+                        type=int,
+                        help='Maximum number of threads per worker process to use when processing granules. '
+                             '(Default: 4)')
+    parser.add_argument('--worker-count',
+                        default=4,
+                        metavar='MAX_WORKERS',
+                        type=int,
+                        help='Number of worker subprocesses. (Default: 4)')
     parser.add_argument('-v',
                         '--verbose',
                         action='store_true',
@@ -195,7 +202,7 @@ async def main(loop):
                                      consumer])
             async with consumer:
                 logger.info("All external dependencies have passed the health checks. Now listening to message queue.")
-                await consumer.start_consuming(args.max_threads)
+                await consumer.start_consuming(args.max_threads, args.worker_count)
         except FailedHealthCheckError as e:
             logger.error(f"Quitting because not all dependencies passed the health checks: {e}")
         except LostConnectionError as e:
@@ -233,7 +240,7 @@ async def main(loop):
 
             async with consumer:
                 logger.info("All external dependencies have passed the health checks. Now listening to message queue.")
-                await consumer.start_consuming(args.max_threads)
+                await consumer.start_consuming(args.max_threads, args.worker_count)
         except FailedHealthCheckError as e:
             logger.error(f"Quitting because not all dependencies passed the health checks: {e}")
         except LostConnectionError as e:

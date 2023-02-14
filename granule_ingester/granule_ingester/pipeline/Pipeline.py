@@ -138,14 +138,16 @@ class Pipeline:
                  data_store_factory,
                  metadata_store_factory,
                  tile_processors: List[TileProcessor],
-                 max_concurrency: int,
+                 max_threads: int,
+                 max_workers: int,
                  log_level=logging.INFO):
         self._granule_loader = granule_loader
         self._tile_processors = tile_processors
         self._slicer = slicer
         self._data_store_factory = data_store_factory
         self._metadata_store_factory = metadata_store_factory
-        self._max_concurrency = int(max_concurrency)
+        self._max_threads = int(max_threads)
+        self._max_workers = int(max_workers)
         self._level = log_level
 
         # Create a SyncManager so that we can to communicate exceptions from the
@@ -159,7 +161,7 @@ class Pipeline:
         self._level = level
 
     @classmethod
-    def from_string(cls, config_str: str, data_store_factory, metadata_store_factory, max_concurrency: int = 16):
+    def from_string(cls, config_str: str, data_store_factory, metadata_store_factory, max_threads: int = 4, max_workers: int = 4):
         logger.debug(f'config_str: {config_str}')
         try:
             config = yaml.load(config_str, yaml.FullLoader)
@@ -168,7 +170,8 @@ class Pipeline:
                                        data_store_factory,
                                        metadata_store_factory,
                                        processor_module_mappings,
-                                       max_concurrency)
+                                       max_threads,
+                                       max_workers)
 
         except yaml.scanner.ScannerError:
             raise PipelineBuildingError("Cannot build pipeline because of a syntax error in the YAML.")
@@ -186,7 +189,8 @@ class Pipeline:
                         data_store_factory,
                         metadata_store_factory,
                         module_mappings: dict,
-                        max_concurrency: int):
+                        max_threads: int,
+                        max_workers: int):
         try:
             granule_loader = GranuleLoader(**config['granule'])
 
@@ -203,7 +207,8 @@ class Pipeline:
                        data_store_factory,
                        metadata_store_factory,
                        tile_processors,
-                       max_concurrency)
+                       max_threads,
+                       max_workers)
         except PipelineBuildingError:
             raise
         except KeyError as e:
@@ -231,7 +236,7 @@ class Pipeline:
             start = time.perf_counter()
 
             shared_memory = self._manager.Namespace()
-            async with Pool(processes=self._max_concurrency,
+            async with Pool(processes=self._max_workers,
                             initializer=_init_worker,
                             initargs=(self._tile_processors,
                                       dataset,
@@ -239,7 +244,7 @@ class Pipeline:
                                       self._metadata_store_factory,
                                       shared_memory,
                                       self._level),
-                            childconcurrency=1) as pool:
+                            childconcurrency=self._max_threads) as pool:
                 serialized_tiles = [nexusproto.NexusTile.SerializeToString(tile) for tile in
                                     self._slicer.generate_tiles(dataset, granule_name)]
                 # aiomultiprocess is built on top of the stdlib multiprocessing library, which has the limitation that
@@ -247,7 +252,7 @@ class Pipeline:
 
                 results = []
 
-                tasks = self._chunk_list(serialized_tiles, BATCH_SIZE, self._max_concurrency)
+                tasks = self._chunk_list(serialized_tiles, BATCH_SIZE, self._max_workers * self._max_threads)
                 batches = self._chunk_list(tasks, MAX_CHUNK_SIZE)
 
                 for batch in batches:
