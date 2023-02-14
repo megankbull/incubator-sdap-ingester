@@ -47,17 +47,6 @@ _worker_dataset = None
 _shared_memory = None
 
 
-class Encoder(json.JSONEncoder):
-    def __init__(self, **args):
-        json.JSONEncoder.__init__(self, **args)
-
-    def default(self, o):
-        try:
-            json.JSONEncoder.default(self, o)
-        except TypeError:
-            return repr(o)
-
-
 def _init_worker(processor_list, dataset, data_store_factory, metadata_store_factory, shared_memory, log_level):
     global _worker_processor_list
     global _worker_dataset
@@ -71,7 +60,7 @@ def _init_worker(processor_list, dataset, data_store_factory, metadata_store_fac
 
     logging.basicConfig(level=log_level, format="%(asctime)s [%(levelname)s] [%(processName)s::%(process)d] [%(name)s::%(lineno)d] %(message)s")
     formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] [%(processName)s::%(process)d] [%(name)s::%(lineno)d] %(message)s")
+        "%(asctime)s [%(levelname)s] [%(processName)s::%(process)d (%(threadName)s::%(thread)d)] [%(name)s::%(lineno)d] %(message)s")
     logging.getLogger("").setLevel(log_level)
     loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
     for logger in loggers:
