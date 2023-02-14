@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import json
 import logging
 import pickle
 import time
@@ -47,6 +47,17 @@ _worker_dataset = None
 _shared_memory = None
 
 
+class Encoder(json.JSONEncoder):
+    def __init__(self, **args):
+        json.JSONEncoder.__init__(self, **args)
+
+    def default(self, o):
+        try:
+            json.JSONEncoder.default(self, o)
+        except TypeError:
+            return repr(o)
+
+
 def _init_worker(processor_list, dataset, data_store_factory, metadata_store_factory, shared_memory, log_level):
     global _worker_processor_list
     global _worker_dataset
@@ -75,7 +86,7 @@ def _init_worker(processor_list, dataset, data_store_factory, metadata_store_fac
 
 async def _process_tile_in_worker(serialized_input_tile: str):
     try:
-        logger.info('Starting tile creation subprocess')
+        logger.debug('Starting tile creation subprocess')
         logger.debug(f'serialized_input_tile: {serialized_input_tile}')
         input_tile = nexusproto.NexusTile.FromString(serialized_input_tile)
         logger.info(f'Creating tile for slice {input_tile.summary.section_spec}')
@@ -228,7 +239,7 @@ class Pipeline:
                                       self._metadata_store_factory,
                                       shared_memory,
                                       self._level),
-                            childconcurrency=self._max_concurrency) as pool:
+                            childconcurrency=1) as pool:
                 serialized_tiles = [nexusproto.NexusTile.SerializeToString(tile) for tile in
                                     self._slicer.generate_tiles(dataset, granule_name)]
                 # aiomultiprocess is built on top of the stdlib multiprocessing library, which has the limitation that
@@ -236,19 +247,20 @@ class Pipeline:
 
                 results = []
 
-                batches = self._chunk_list(serialized_tiles, BATCH_SIZE, self._max_concurrency)
+                tasks = self._chunk_list(serialized_tiles, BATCH_SIZE, self._max_concurrency)
+                batches = self._chunk_list(tasks, MAX_CHUNK_SIZE)
 
-                for chunk in self._chunk_list(batches, MAX_CHUNK_SIZE):
+                for batch in batches:
                     try:
-                        logger.info(f'Starting batch of {len(chunk)} tasks in worker pool')
-                        for rb in await pool.map(_process_tile_batch_in_worker, chunk):
+                        logger.info(f'Starting batch of {len(batch)} tasks in worker pool')
+                        for rb in await pool.map(_process_tile_batch_in_worker, batch):
                             for r in rb:
                                 if r is not None:
                                     results.append(nexusproto.NexusTile.FromString(r))
-                        logger.info(f'Finished batch of {len(chunk)} tasks in worker pool')
+                        logger.info(f'Finished batch of {len(batch)} tasks in worker pool')
 
                     except ProxyException:
-                        logger.info(f'Finished batch of {len(chunk)} tasks in worker pool with error')
+                        logger.info(f'Finished batch of {len(batch)} tasks in worker pool with error')
                         pool.terminate()
                         # Give the shared memory manager some time to write the exception
                         # await asyncio.sleep(1)
