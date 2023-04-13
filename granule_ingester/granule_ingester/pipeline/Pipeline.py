@@ -85,11 +85,11 @@ async def _process_tile_in_worker(serialized_input_tile: str):
             logger.info('Processed tile is empty; adding None result to return')
             return None
 
-        logger.info('Tile processing complete; serializing output tile')
+        logger.debug('Tile processing complete; serializing output tile')
 
         serialized_output_tile = nexusproto.NexusTile.SerializeToString(processed_tile)
 
-        logger.info('Adding serialized result to return')
+        logger.debug('Adding serialized result to return')
 
         return serialized_output_tile
     except Exception as e:
@@ -181,7 +181,10 @@ class Pipeline:
                         max_threads: int,
                         max_workers: int):
         try:
-            granule_loader = GranuleLoader(**config['granule'])
+            if 'preprocess' in config:
+                granule_loader = GranuleLoader(**config['granule'], **{'preprocess': config['preprocess']})
+            else:
+                granule_loader = GranuleLoader(**config['granule'])
 
             slicer_config = config['slicer']
             slicer = cls._parse_module(slicer_config, module_mappings)
