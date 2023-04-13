@@ -47,6 +47,7 @@ class Collection:
     forward_processing_priority: Optional[int] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
+    preprocess: str = None
     insitu: bool = False
 
     @staticmethod
@@ -81,6 +82,8 @@ class Collection:
             date_from = datetime.fromisoformat(properties['from']) if 'from' in properties else None
             insitu = 'insitu' in properties and properties['insitu']
 
+            preprocess = json.dumps(properties['preprocess']) if 'preprocess' in properties else None
+
             collection = Collection(dataset_id=properties['id'],
                                     projection=properties['projection'],
                                     dimension_names=frozenset(Collection.__decode_dimension_names(properties['dimensionNames'])),
@@ -90,6 +93,7 @@ class Collection:
                                     forward_processing_priority=properties.get('forward-processing-priority', None),
                                     date_to=date_to,
                                     date_from=date_from,
+                                    preprocess=preprocess,
                                     insitu=insitu)
             return collection
         except KeyError as e:
