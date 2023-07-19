@@ -217,15 +217,17 @@ class Pipeline:
             start = time.perf_counter()
 
             shared_memory = self._manager.Namespace()
-            async with Pool(processes=self._max_concurrency,
-                            initializer=_init_worker,
-                            initargs=(self._tile_processors,
-                                      dataset,
-                                      self._data_store_factory,
-                                      self._metadata_store_factory,
-                                      shared_memory,
-                                      self._level),
-                            childconcurrency=self._max_concurrency) as pool:
+            async with Pool(
+                    processes=self._max_concurrency,
+                    initializer=_init_worker,
+                    initargs=(self._tile_processors,
+                              dataset,
+                              self._data_store_factory,
+                              self._metadata_store_factory,
+                              shared_memory,
+                              self._level),
+                    # childconcurrency=self._max_concurrency
+                            ) as pool:
                 serialized_tiles = [nexusproto.NexusTile.SerializeToString(tile) for tile in
                                     self._slicer.generate_tiles(dataset, granule_name)]
                 # aiomultiprocess is built on top of the stdlib multiprocessing library, which has the limitation that
@@ -238,10 +240,13 @@ class Pipeline:
                 for chunk in self._chunk_list(batches, MAX_CHUNK_SIZE):
                     try:
                         logger.info(f'Starting batch of {len(chunk)} tasks in worker pool')
-                        for rb in await pool.map(_process_tile_batch_in_worker, chunk):
+                        async for rb in pool.map(_process_tile_batch_in_worker, chunk):
                             for r in rb:
                                 if r is not None:
                                     results.append(nexusproto.NexusTile.FromString(r))
+
+                            await self._data_store_factory().save_batch(results)
+                            await self._metadata_store_factory().save_batch(results)
                         logger.info(f'Finished batch of {len(chunk)} tasks in worker pool')
 
                     except ProxyException:
@@ -256,8 +261,8 @@ class Pipeline:
                 logger.info(f"Finished generating tiles in {tile_gen_end - start} seconds")
                 logger.info(f"Now writing generated tiles...")
 
-                await self._data_store_factory().save_batch(results)
-                await self._metadata_store_factory().save_batch(results)
+                # await self._data_store_factory().save_batch(results)
+                # await self._metadata_store_factory().save_batch(results)
 
         end = time.perf_counter()
         logger.info("Pipeline finished in {} seconds".format(end - start))
