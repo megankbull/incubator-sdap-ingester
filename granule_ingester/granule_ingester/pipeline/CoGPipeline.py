@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from granule_ingester.pipeline.Pipeline import Pipeline
-from granule_ingester.pipeline.Modules import modules
-from granule_ingester.pipeline.NexusprotoPipeline import NexusprotoPipeline
-from granule_ingester.pipeline.CoGPipeline import CoGPipeline
+from granule_ingester.pipeline import Pipeline
+
+
+class CoGPipeline(Pipeline):
+    pass
