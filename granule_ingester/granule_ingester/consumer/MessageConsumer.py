@@ -19,7 +19,7 @@ import aio_pika
 from granule_ingester.exceptions import PipelineBuildingError, PipelineRunningError, RabbitMQLostConnectionError, \
     RabbitMQFailedHealthCheckError, LostConnectionError
 from granule_ingester.healthcheck import HealthCheck
-from granule_ingester.pipeline import Pipeline
+from granule_ingester.pipeline import PipelineBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +74,10 @@ class MessageConsumer(HealthCheck):
         try:
             config_str = message.body.decode("utf-8")
             logger.debug(config_str)
-            pipeline = Pipeline.from_string(config_str=config_str,
-                                            data_store_factory=data_store_factory,
-                                            metadata_store_factory=metadata_store_factory,
-                                            max_concurrency=pipeline_max_concurrency)
+            pipeline = PipelineBuilder.from_string(config_str=config_str,
+                                                   data_store_factory=data_store_factory,
+                                                   metadata_store_factory=metadata_store_factory,
+                                                   max_concurrency=pipeline_max_concurrency)
             pipeline.set_log_level(log_level)
             await pipeline.run()
             await message.ack()

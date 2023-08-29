@@ -20,8 +20,6 @@ import time
 from multiprocessing import Manager
 from typing import List
 
-import rioxarray
-import xarray as xr
 import yaml
 from aiomultiprocess import Pool
 from aiomultiprocess.types import ProxyException

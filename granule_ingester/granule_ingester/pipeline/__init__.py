@@ -17,3 +17,4 @@ from granule_ingester.pipeline.Pipeline import Pipeline
 from granule_ingester.pipeline.Modules import modules
 from granule_ingester.pipeline.NexusprotoPipeline import NexusprotoPipeline
 from granule_ingester.pipeline.CoGPipeline import CoGPipeline
+from granule_ingester.pipeline.PipelineBuilder import PipelineBuilder
