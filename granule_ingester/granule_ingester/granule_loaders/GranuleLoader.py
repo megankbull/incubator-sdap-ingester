@@ -17,12 +17,18 @@ import logging
 import os
 import tempfile
 from urllib import parse
+import json
+from itertools import chain
 
 import aioboto3
+import rioxarray
 import xarray as xr
 from granule_ingester.exceptions import GranuleLoadingError, PipelineBuildingError
 from granule_ingester.granule_loaders.Preprocessors import modules as module_mappings
 from granule_ingester.preprocessors import GranulePreprocessor
+from pathlib import PurePosixPath
+import numpy as np
+from rioxarray.exceptions import MissingCRS
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +40,17 @@ class GranuleLoader:
         self._resource = resource
         self._preprocess = None
 
+        self._tiff = False
+
         if 'preprocess' in kwargs:
             self._preprocess = [GranuleLoader._parse_module(module) for module in kwargs['preprocess']]
+
+        if 'tiff' in kwargs:
+            self._tiff = True
+            variables = json.loads(kwargs['dims']['variable'])
+
+            self._dims = kwargs['dims']
+            self._vars = dict(chain(*[d.items() for d in variables]))
 
     async def __aenter__(self):
         return await self.open()
@@ -43,6 +58,9 @@ class GranuleLoader:
     async def __aexit__(self, type, value, traceback):
         if self._granule_temp_file:
             self._granule_temp_file.close()
+
+    def get_resource(self):
+        return self._resource
 
     async def open(self) -> (xr.Dataset, str):
         resource_url = parse.urlparse(self._resource)
@@ -58,16 +76,41 @@ class GranuleLoader:
 
         granule_name = os.path.basename(self._resource)
         try:
-            ds = xr.open_dataset(file_path, lock=False)
+            if self._tiff:
+                def determine_time(granule_path: str):
+                    time_date_str = PurePosixPath(granule_path).stem.split('_')[-1]
+                    time_parts = time_date_str.partition('T')
+                    time_str = time_parts[2]
+                    time_date_str = time_parts[0] + time_parts[1] + time_str[:2] + ':' + time_str[2:4] + ':' + time_str[
+                                                                                                               4:]
+                    time_val = np.datetime64(time_date_str)
 
-            if self._preprocess is not None:
-                logger.info(f'There are {len(self._preprocess)} preprocessors to apply for granule {self._resource}')
-                while len(self._preprocess) > 0:
-                    preprocessor: GranulePreprocessor = self._preprocess.pop(0)
+                    return time_val
 
-                    ds = preprocessor.process(ds)
+                granule_time = determine_time(granule_name)
 
-            return ds, granule_name
+                tiff = rioxarray.open_rasterio(file_path).to_dataset("band")
+
+                try:
+                    tiff = tiff.rio.reproject(dst_crs='EPSG:4326', nodata=np.nan)
+                except MissingCRS:
+                    tiff = tiff.rio.write_crs('EPSG:4326').reproject(dst_crs='EPSG:4326', nodata=np.nan)
+
+                tiff.expand_dims({"time": 1})
+                tiff = tiff.assign_coords({"time": [granule_time]})
+
+                return tiff, granule_name
+            else:
+                ds = xr.open_dataset(file_path, lock=False)
+
+                if self._preprocess is not None:
+                    logger.info(f'There are {len(self._preprocess)} preprocessors to apply for granule {self._resource}')
+                    while len(self._preprocess) > 0:
+                        preprocessor: GranulePreprocessor = self._preprocess.pop(0)
+
+                        ds = preprocessor.process(ds)
+
+                return ds, granule_name
         except FileNotFoundError:
             raise GranuleLoadingError(f"The granule file {self._resource} does not exist.")
         except Exception:

@@ -50,7 +50,7 @@ class Collection:
     preprocess: str = None
     processors: str = None
     store_type: str = None
-    config: str = None
+    config: frozenset = None
 
     @staticmethod
     def __decode_dimension_names(dimension_names_dict):

@@ -14,7 +14,110 @@
 # limitations under the License.
 
 from granule_ingester.pipeline import Pipeline
+import logging
+import pickle
+import time
+from multiprocessing import Manager
+from typing import List
+
+import rioxarray
+import xarray as xr
+import yaml
+from aiomultiprocess import Pool
+from aiomultiprocess.types import ProxyException
+from granule_ingester.exceptions import PipelineBuildingError
+from granule_ingester.granule_loaders import GranuleLoader
+from granule_ingester.pipeline.Modules import \
+    modules as processor_module_mappings
+from granule_ingester.processors.TileProcessor import TileProcessor
+from granule_ingester.slicers import TileSlicer
+from granule_ingester.writers import DataStore, MetadataStore
+from tblib import pickling_support
+import numpy as np
+import json
+from itertools import chain
+
+logger = logging.getLogger(__name__)
 
 
 class CoGPipeline(Pipeline):
-    pass
+    def __init__(self,
+                 granule_loader: GranuleLoader,
+                 metadata_store_factory,
+                 dataset: str,
+                 granule_s: str,
+                 dims: dict,
+                 log_level=logging.INFO):
+        self._granule_loader = granule_loader
+        self._metadata_store_factory = metadata_store_factory
+        self._dataset = dataset
+        self._granule = granule_s
+        self._dims = dims
+        self._level = log_level
+
+    def set_log_level(self, level):
+        self._level = level
+
+    @classmethod
+    def build_pipeline(cls,
+                       config: dict,
+                       data_store_factory,
+                       metadata_store_factory,
+                       module_mappings: dict,
+                       max_concurrency: int,
+                       ):
+        granule_loader = GranuleLoader(**config['granule'], tiff=True, dims=config['dimensions'])
+
+        return cls(
+            granule_loader,
+            metadata_store_factory,
+            config['dataset'],
+            config['granule']['granule_s'],
+            config['dimensions']
+        )
+
+    async def run(self):
+        # Note: When pushing to Solr, use granule path from config dict
+
+        bounds = {}
+
+        async with self._granule_loader as (dataset, granule_name):
+            time = np.datetime_as_string(
+                dataset['time'].to_numpy().flatten(),
+                unit='s',
+                timezone='UTC'
+            ).tolist()
+            lats = dataset['y'].to_numpy().flatten()
+            lons = dataset['x'].to_numpy().flatten()
+
+            # elevation = None
+            #
+            # if 'height' in self._dims:
+            #     elevation = dataset[self._dims['height']].to_numpy().flatten()
+            # elif 'elevation' in self._dims:
+            #     elevation = dataset[self._dims['elevation']].to_numpy().flatten()
+            # elif 'depth' in self._dims:
+            #     elevation = dataset[self._dims['depth']].to_numpy().flatten() * -1
+
+            bounds['max_time_dt'] = max(time)
+            bounds['min_time_dt'] = min(time)
+
+            bounds['max_lon_l'] = np.nanmax(lons)
+            bounds['min_lon_l'] = np.nanmin(lons)
+
+            bounds['max_lat_l'] = np.nanmax(lats)
+            bounds['min_lat_l'] = np.nanmin(lats)
+
+            # if elevation:
+            #     bounds['max_elevation_l'] = np.nanmax(elevation)
+            #     bounds['min_elevation_l'] = np.nanmin(elevation)
+
+        await self._metadata_store_factory().save_granule(self._granule, self._dataset, bounds)
+
+        variables = json.loads(self._dims['variable'])
+
+        config = {
+            'bands': dict(chain(*[d.items() for d in variables]))
+        }
+
+        await self._metadata_store_factory().update_dataset(self._dataset, 'cog', config)

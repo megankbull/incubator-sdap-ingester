@@ -72,8 +72,16 @@ class CollectionProcessor:
             return
 
         dataset_config = self._generate_ingestion_message(granule, collection)
-        await self._publisher.publish_message(body=dataset_config, priority=use_priority)
-        await history_manager.push(granule, modified_time)
+
+        if collection.store_type in ['cog', 'cloud_optimized_geotiff']:
+            # If it's CoG, push the granule record to Solr before sending the job to RMQ so that there is a record of
+            # the granule to be edited
+
+            await history_manager.push(granule, modified_time)
+            await self._publisher.publish_message(body=dataset_config, priority=use_priority)
+        else:
+            await self._publisher.publish_message(body=dataset_config, priority=use_priority)
+            await history_manager.push(granule, modified_time)
 
     def add_plugin_collection(self, collection: Collection):
         history_manager = self._get_history_manager(None)
@@ -138,12 +146,19 @@ class CollectionProcessor:
                 'resource': granule_path,
                 'granule_s': IngestionHistory.get_standardized_path(granule_path)
             },
-            'slicer': {
+            'processors': CollectionProcessor._get_default_processors(collection),
+            'dataset_name': collection.dataset_id
+        }
+
+        if collection.store_type == 'nexusproto':
+            config_dict['slicer'] = {
                 'name': 'sliceFileByStepSize',
                 'dimension_step_sizes': dict(collection.slices)
-            },
-            'processors': CollectionProcessor._get_default_processors(collection)
-        }
+            }
+        elif collection.store_type in ['cog', 'cloud_optimized_geotiff']:
+            config_dict['dimensions'] = dict(collection.dimension_names)
+            config_dict['config'] = dict(collection.config)
+
 
         if collection.preprocess is not None:
             config_dict['preprocess'] = json.loads(collection.preprocess)

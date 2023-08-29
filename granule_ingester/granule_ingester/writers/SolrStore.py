@@ -21,7 +21,9 @@ import logging
 from asyncio import AbstractEventLoop
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
+import os.path
+from urllib.parse import urlparse
 
 import pysolr
 from kazoo.exceptions import NoNodeError
@@ -33,6 +35,7 @@ from granule_ingester.exceptions import (SolrFailedHealthCheckError,
                                          SolrLostConnectionError)
 from granule_ingester.writers.MetadataStore import MetadataStore
 from nexusproto.DataTile_pb2 import NexusTile, TileSummary
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +53,12 @@ class SolrStore(MetadataStore):
         self._zk_url = zk_url
         self.geo_precision: int = 3
         self._collection: str = "nexustiles"
+        self._granule_collection: str = 'nexusgranules'
+        self._datasets_collection: str = 'nexusdatasets'
         self.log: logging.Logger = logging.getLogger(__name__)
-        self._solr = None
+        self._solr: pysolr.Solr = None
+        self._solr_granules: pysolr.Solr = None
+        self._solr_datasets: pysolr.Solr = None
 
     def _get_collections(self, zk, parent_nodes):
         """
@@ -85,29 +92,79 @@ class SolrStore(MetadataStore):
             collections.update(json.loads(zk.zk.get(f"{parent_node}/{c}/state.json")[0].decode("utf-8")))
         zk.collections = collections
 
-    def _get_connection(self) -> pysolr.Solr:
+    def _get_connection(self) -> Tuple[pysolr.Solr, pysolr.Solr, pysolr.Solr]:
         if self._zk_url:
             zk = pysolr.ZooKeeper(f"{self._zk_url}")
             self._set_solr_status(zk)
-            return pysolr.SolrCloud(zk, self._collection, always_commit=True)
+            return pysolr.SolrCloud(zk, self._collection, always_commit=True), \
+                   pysolr.SolrCloud(zk, self._granule_collection, always_commit=True), \
+                   pysolr.SolrCloud(zk, self._datasets_collection, always_commit=True)
         elif self._solr_url:
-            return pysolr.Solr(f'{self._solr_url}/solr/{self._collection}', always_commit=True)
+            return pysolr.Solr(f'{self._solr_url}/solr/{self._collection}', always_commit=True), \
+                   pysolr.Solr(f'{self._solr_url}/solr/{self._granule_collection}', always_commit=True), \
+                   pysolr.Solr(f'{self._solr_url}/solr/{self._datasets_collection}', always_commit=True)
         else:
             raise RuntimeError("You must provide either solr_host or zookeeper_host.")
 
     def connect(self, loop: AbstractEventLoop = None):
-        self._solr = self._get_connection()
+        self._solr, self._solr_granules, self._solr_datasets = self._get_connection()
 
     async def health_check(self):
         try:
-            connection = self._get_connection()
-            connection.ping()
+            connections = self._get_connection()
+            connections[0].ping()
+            connections[1].ping()
+            connections[2].ping()
         except pysolr.SolrError:
             raise SolrFailedHealthCheckError("Cannot connect to Solr!")
         except NoNodeError:
             raise SolrFailedHealthCheckError("Connected to Zookeeper but cannot connect to Solr!")
         except KazooTimeoutError:
             raise SolrFailedHealthCheckError("Cannot connect to Zookeeper!")
+
+
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=1, max=12))
+    async def save_granule(self, granule: str, dataset: str, bounds: dict):
+        docs = self._solr_granules.search(f'dataset_s:{dataset}', fq=f'granule_s:{granule}')
+
+        if len(docs) == 0:
+            logger.error(f'No matching documents found for dataset \'{dataset}\' and granule \'{granule}\'. '
+                         f'Pushing a doc anyway, but this may be problematic')
+            doc = dict(granule_s=granule, dataset_s=dataset)
+        elif len(docs) > 1:
+            logger.warning('Multiple matching documents found for dataset \'{dataset}\' and granule \'{granule}\'. '
+                           'Picking the first to update')
+            doc = next(docs)
+        else:
+            doc = next(docs)
+
+        doc.update(bounds)
+
+        try:
+            self._solr_granules.add([doc])
+        except pysolr.SolrError as e:
+            logger.warning("Failed to save granule document to Solr")
+            logger.exception(
+                f'May have lost connection to Solr, and cannot save tiles. cause: {e}. creating SolrLostConnectionError')
+            raise SolrLostConnectionError(f'Lost connection to Solr, and cannot save tiles. cause: {e}')
+
+
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=1, max=12))
+    async def update_dataset(self, dataset_s, store_type, config):
+        try:
+            self._solr_datasets.add([{
+                'id': dataset_s,
+                'dataset_s': dataset_s,
+                'latest_update_l': int(datetime.now().timestamp()),
+                'store_type_s': store_type,
+                'config': json.dumps(config),
+                'source_s:': 'collection_config'
+            }])
+        except pysolr.SolrError as e:
+            logger.warning("Failed to save dataset document to Solr")
+            logger.exception(
+                f'May have lost connection to Solr, and cannot save tiles. cause: {e}. creating SolrLostConnectionError')
+            raise SolrLostConnectionError(f'Lost connection to Solr, and cannot save tiles. cause: {e}')
 
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=1, max=12))
     async def save_metadata(self, nexus_tile: NexusTile) -> None:

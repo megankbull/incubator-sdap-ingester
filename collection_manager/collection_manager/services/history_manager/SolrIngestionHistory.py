@@ -180,6 +180,23 @@ class SolrIngestionHistory(IngestionHistory):
         }
         return self._req_session.post(schema_url, data=str(add_field_payload).encode('utf-8'))
 
+    def _add_dynamic_field(self, schema_url, field_name, field_type, stored=False):
+        """
+        Helper to add a string field in a solr schema
+        :param schema_url:
+        :param field_name:
+        :param field_type
+        :return:
+        """
+        add_field_payload = {
+            "add-dynamic-field": {
+                "name": field_name,
+                "type": field_type,
+                "stored": stored
+            }
+        }
+        return self._req_session.post(schema_url, data=str(add_field_payload).encode('utf-8'))
+
 
 class DatasetIngestionHistorySolrException(Exception):
     pass
