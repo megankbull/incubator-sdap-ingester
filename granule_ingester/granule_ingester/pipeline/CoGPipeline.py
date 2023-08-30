@@ -69,7 +69,7 @@ class CoGPipeline(Pipeline):
         return cls(
             granule_loader,
             metadata_store_factory,
-            config['dataset'],
+            config['dataset_name'],
             config['granule']['granule_s'],
             config['dimensions']
         )
@@ -100,11 +100,11 @@ class CoGPipeline(Pipeline):
             bounds['max_time_dt'] = max(time)
             bounds['min_time_dt'] = min(time)
 
-            bounds['max_lon_l'] = np.nanmax(lons)
-            bounds['min_lon_l'] = np.nanmin(lons)
+            bounds['max_lon_d'] = np.nanmax(lons)
+            bounds['min_lon_d'] = np.nanmin(lons)
 
-            bounds['max_lat_l'] = np.nanmax(lats)
-            bounds['min_lat_l'] = np.nanmin(lats)
+            bounds['max_lat_d'] = np.nanmax(lats)
+            bounds['min_lat_d'] = np.nanmin(lats)
 
             # if elevation:
             #     bounds['max_elevation_l'] = np.nanmax(elevation)

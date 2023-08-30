@@ -134,9 +134,9 @@ class SolrStore(MetadataStore):
         elif len(docs) > 1:
             logger.warning('Multiple matching documents found for dataset \'{dataset}\' and granule \'{granule}\'. '
                            'Picking the first to update')
-            doc = next(docs)
+            doc = next(iter(docs))
         else:
-            doc = next(docs)
+            doc = next(iter(docs))
 
         doc.update(bounds)
 
@@ -158,7 +158,7 @@ class SolrStore(MetadataStore):
                 'latest_update_l': int(datetime.now().timestamp()),
                 'store_type_s': store_type,
                 'config': json.dumps(config),
-                'source_s:': 'collection_config'
+                'source_s': 'collection_config'
             }])
         except pysolr.SolrError as e:
             logger.warning("Failed to save dataset document to Solr")

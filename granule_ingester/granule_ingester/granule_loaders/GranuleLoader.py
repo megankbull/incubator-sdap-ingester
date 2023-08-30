@@ -81,8 +81,12 @@ class GranuleLoader:
                     time_date_str = PurePosixPath(granule_path).stem.split('_')[-1]
                     time_parts = time_date_str.partition('T')
                     time_str = time_parts[2]
-                    time_date_str = time_parts[0] + time_parts[1] + time_str[:2] + ':' + time_str[2:4] + ':' + time_str[
-                                                                                                               4:]
+                    date_str = time_parts[0]
+                    # time_date_str = time_parts[0] + time_parts[1] + time_str[:2] + ':' + time_str[2:4] + ':' + time_str[
+                    #                                                                                            4:]
+                    time_date_str = (f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}T'
+                                     f'{time_str[:2]}:{time_str[2:4]}:{time_str[4:]}').rstrip('Z')
+
                     time_val = np.datetime64(time_date_str)
 
                     return time_val
@@ -94,7 +98,7 @@ class GranuleLoader:
                 try:
                     tiff = tiff.rio.reproject(dst_crs='EPSG:4326', nodata=np.nan)
                 except MissingCRS:
-                    tiff = tiff.rio.write_crs('EPSG:4326').reproject(dst_crs='EPSG:4326', nodata=np.nan)
+                    tiff = tiff.rio.write_crs('EPSG:4326').rio.reproject(dst_crs='EPSG:4326', nodata=np.nan)
 
                 tiff.expand_dims({"time": 1})
                 tiff = tiff.assign_coords({"time": [granule_time]})
@@ -113,8 +117,9 @@ class GranuleLoader:
                 return ds, granule_name
         except FileNotFoundError:
             raise GranuleLoadingError(f"The granule file {self._resource} does not exist.")
-        except Exception:
-            raise GranuleLoadingError(f"The granule {self._resource} is not a valid NetCDF file.")
+        except Exception as err:
+            logger.exception(err)
+            raise GranuleLoadingError(f"An error occurred. The granule {self._resource} may not be a valid NetCDF file.")
 
     @staticmethod
     async def _download_s3_file(url: str):
