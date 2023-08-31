@@ -20,7 +20,7 @@ Use a conda environment for example:
 From `incubator-sdap-ingester`, run:
 
     $ cd common && python setup.py install
-    $ cd ../collection_manager python setup.py install
+    $ cd ../collection_manager && python setup.py install
     
 
 ## Running the service
