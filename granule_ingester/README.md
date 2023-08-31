@@ -6,30 +6,41 @@ in this repo). For each message consumed, this service will read a granule file 
 disk and ingest it into SDAP by processing the granule and writing the resulting
 data to Cassandra and Solr.
 
+# Local setup
 
-## Prerequisites
+## Prerequisites 
+Python 3.8.17
 
-Python 3.7
+## Create conda enviornment 
+    ```
+    conda create -n granule-ingester 'python=3.8.17'
+    conda activate granule-ingester
+    ```
 
 ## Building the service
 From `incubator-sdap-ingester`, run:
-    $ cd common && python setup.py install
-    $ cd ../granule_ingester && python setup.py install
-    
+    ```
+    cd common && python setup.py install
+    cd ../granule_ingester && python setup.py install
+    ```
 
-## Launching the service
+## Launching the Granule Ingester
 From `incubator-sdap-ingester`, run:
-
-    $ python granule_ingester/granule_ingester/main.py -h
-    
-## Running the tests
-From `incubator-sdap-ingester`, run:
-
-    $ cd common && python setup.py install
-    $ cd ../granule_ingester && python setup.py install
-    $ pip install pytest && pytest
-    
+    ```
+    python granule_ingester/granule_ingester/main.py -h
+    ```
+      
 ## Building the Docker image
 From `incubator-sdap-ingester`, run:
+    ```
+    docker build . -f granule_ingester/docker/Dockerfile -t nexusjpl/granule-ingester
+    ```
+    
+<!-- Not sure if the following instructions are still relevant -->
+<!-- ## Running the tests
+From `incubator-sdap-ingester`, run:
 
-    $ docker build . -f granule_ingester/docker/Dockerfile -t nexusjpl/granule-ingester
+    $ cd common && python setup.py install
+    $ cd ../granule_ingester && python setup.py install
+    $ pip install pytest && pytest -->
+    
