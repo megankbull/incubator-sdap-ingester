@@ -95,6 +95,12 @@ class SolrIngestionHistory(IngestionHistory):
                     'source_s': 'collection_config'
                 }])
                 self._solr_datasets.commit()
+            # else: 
+            #     self._solr_datasets.add([{
+            #         'id': dataset_id, 
+            #         'latest_update_l': int(datetime.now().timestamp())
+            #     }])
+
 
     def _get_latest_file_update(self):
         results = self._solr_datasets.search(q=f"id:{self._dataset_id}")

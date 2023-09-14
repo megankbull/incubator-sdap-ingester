@@ -73,7 +73,7 @@ class CollectionProcessor:
 
         dataset_config = self._generate_ingestion_message(granule, collection)
 
-        if collection.store_type in ['cog', 'cloud_optimized_geotiff']:
+        if collection.store_type in ['cog', 'cloud_optimized_geotiff', 'zarr_conversion', 'zc']:
             # If it's CoG, push the granule record to Solr before sending the job to RMQ so that there is a record of
             # the granule to be edited
 
@@ -139,12 +139,13 @@ class CollectionProcessor:
 
     @staticmethod
     def _generate_ingestion_message(granule_path: str, collection: Collection) -> str:
-
+        # If using NetCDF to Zarr conversion, destination_resource is the path to the to-be-created/existing store
         config_dict = {
             'pipeline_type': collection.store_type,
             'granule': {
                 'resource': granule_path,
-                'granule_s': IngestionHistory.get_standardized_path(granule_path)
+                'granule_s': IngestionHistory.get_standardized_path(granule_path),
+                'destination_resource': collection.destination_resource 
             },
             'processors': CollectionProcessor._get_default_processors(collection),
             'dataset_name': collection.dataset_id
@@ -155,10 +156,9 @@ class CollectionProcessor:
                 'name': 'sliceFileByStepSize',
                 'dimension_step_sizes': dict(collection.slices)
             }
-        elif collection.store_type in ['cog', 'cloud_optimized_geotiff']:
+        elif collection.store_type in {'cog', 'cloud_optimized_geotiff', 'zarr_conversion', 'zc'}:
             config_dict['dimensions'] = dict(collection.dimension_names)
             config_dict['config'] = dict(collection.config)
-
 
         if collection.preprocess is not None:
             config_dict['preprocess'] = json.loads(collection.preprocess)

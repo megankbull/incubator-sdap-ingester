@@ -34,7 +34,7 @@ class CollectionStorageType(Enum):
     S3 = 2
     REMOTE = 3
     ZARR = 4
-
+    ZARR_CONVERSION = 5
 
 @dataclass(frozen=True)
 class Collection:
@@ -44,6 +44,7 @@ class Collection:
     slices: frozenset
     path: str
     historical_priority: int
+    destination_resource: Optional[str] = None # name of zarr store to add a NetCDF to 
     forward_processing_priority: Optional[int] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
@@ -93,12 +94,15 @@ class Collection:
 
             projection = properties['projection'] if 'projection' in properties else None
 
+            destination = properties['destination'] if 'destination' in properties else None
+
             collection = Collection(dataset_id=properties['id'],
                                     projection=projection,
                                     dimension_names=frozenset(Collection.__decode_dimension_names(properties['dimensionNames'])),
                                     slices=frozenset(slices.items()),
                                     path=properties['path'],
                                     historical_priority=properties['priority'],
+                                    destination_resource=destination, 
                                     forward_processing_priority=properties.get('forward-processing-priority', None),
                                     date_to=date_to,
                                     date_from=date_from,
@@ -112,6 +116,8 @@ class Collection:
             raise MissingValueCollectionError(missing_value=e.args[0])
 
     def storage_type(self):
+        if self.store_type == 'zarr_conversion': 
+            return CollectionStorageType.ZARR_CONVERSION
         if self.store_type == 'zarr':
             return CollectionStorageType.ZARR
         if urlparse(self.path).scheme == 's3':

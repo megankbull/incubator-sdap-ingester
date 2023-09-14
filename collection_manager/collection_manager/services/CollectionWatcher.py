@@ -101,7 +101,7 @@ class CollectionWatcher:
             for collection_dict in collections_yaml['collections']:
                 try:
                     collection = Collection.from_dict(collection_dict)
-                    if collection.storage_type() == CollectionStorageType.ZARR:
+                    if collection.storage_type() in {CollectionStorageType.ZARR, CollectionStorageType.ZARR_CONVERSION}:
                         self._dataset_added_callback(collection)
                     elif collection.storage_type() != CollectionStorageType.REMOTE:
                         self._validate_collection(collection)
